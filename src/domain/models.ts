@@ -8,6 +8,7 @@ export type SafetyState = 'unknown' | 'safe' | 'caution' | 'warning' | 'critical
 
 export interface VehicleIdentity {
   id: string
+  componentId?: number
   name: string
   type: string
   flightMode: string
