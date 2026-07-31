@@ -44,4 +44,20 @@ describe('MockVehicleProvider', () => {
     expect(provider.getSnapshot().commands.find((entry) => entry.id === command.id)?.status).toBe('accepted')
     expect(provider.getSnapshot().timeline[0]?.label).toBe('Land accepted')
   })
+
+  it('completes deterministic mock mission transfers', async () => {
+    const provider = new MockVehicleProvider()
+    const receipt = await provider.downloadMission()
+    expect(receipt).toMatchObject({
+      type: 'download',
+      status: 'succeeded',
+      message: 'Mission download completed.',
+    })
+    expect(provider.getSnapshot().mission.mostRecentTransfer).toMatchObject({
+      id: receipt.operationId,
+      type: receipt.type,
+      status: receipt.status,
+      failureReason: undefined,
+    })
+  })
 })

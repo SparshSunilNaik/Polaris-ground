@@ -1,4 +1,11 @@
-import type { GroundStationSnapshot, VehicleAction, VehicleCommand } from '../domain/models'
+import type {
+  GroundStationSnapshot,
+  MissionOperationReceipt,
+  MissionPlan,
+  MissionValidationResult,
+  VehicleAction,
+  VehicleCommand,
+} from '../domain/models'
 import type { VehicleProvider } from '../providers/VehicleProvider'
 
 export class VehicleService {
@@ -21,6 +28,18 @@ export class VehicleService {
   }
   sendCommand(action: VehicleAction): Promise<VehicleCommand> {
     return this.provider.sendCommand(action)
+  }
+  downloadMission(): Promise<MissionOperationReceipt> {
+    return this.provider.downloadMission()
+  }
+  uploadMission(plan: MissionPlan): Promise<MissionOperationReceipt> {
+    return this.provider.uploadMission(plan)
+  }
+  clearMission(): Promise<MissionOperationReceipt> {
+    return this.provider.clearMission()
+  }
+  validateMission(plan: MissionPlan): MissionValidationResult {
+    return this.provider.validateMission(plan)
   }
   dispose(): void {
     this.provider.dispose()

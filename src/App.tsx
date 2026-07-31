@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { CameraPlaceholder } from './components/dashboard/CameraPlaceholder'
 import { MissionSummary } from './components/dashboard/MissionSummary'
+import { MissionWorkspace } from './components/dashboard/MissionWorkspace'
 import { TimelineCard } from './components/dashboard/TimelineCard'
 import { VehicleActions } from './components/dashboard/VehicleActions'
 import { VehicleStatusCard } from './components/dashboard/VehicleStatusCard'
@@ -39,13 +40,32 @@ export default function App() {
   const sendCommand = (action: VehicleAction) => {
     void serviceRef.current?.sendCommand(action)
   }
+  const validateMission = (plan: import('./domain/models').MissionPlan) =>
+    serviceRef.current?.validateMission(plan) ?? {
+      valid: false,
+      issues: [{ code: 'service_unavailable', message: 'Vehicle service is unavailable.' }],
+    }
   return (
     <AppShell>
       <NavigationRail active={page} onSelect={setPage} />
       <div className="application-frame">
         <TopBar page={page} snapshot={snapshot} onSettings={() => setPage('Settings')} />
         <div className="workspace" id="main-content">
-          {page !== 'Operate' ? (
+          {page === 'Mission' ? (
+            <MissionWorkspace
+              snapshot={snapshot}
+              validate={validateMission}
+              onUpload={async (plan) => {
+                await serviceRef.current?.uploadMission(plan)
+              }}
+              onDownload={async () => {
+                await serviceRef.current?.downloadMission()
+              }}
+              onClear={async () => {
+                await serviceRef.current?.clearMission()
+              }}
+            />
+          ) : page !== 'Operate' ? (
             <EmptyState
               title={`${page} workspace`}
               description="This operator workspace is prepared for a later Polaris Ground milestone."

@@ -7,6 +7,18 @@ export type MissionState = 'idle' | 'ready' | 'running' | 'completed' | 'interru
 export type SafetyState = 'unknown' | 'safe' | 'caution' | 'warning' | 'critical'
 export type VehicleAction = 'arm' | 'disarm' | 'takeoff' | 'land' | 'returnToLaunch'
 export type CommandStatus = 'pending' | 'accepted' | 'rejected' | 'timed_out'
+export type MissionItemType = 'takeoff' | 'waypoint' | 'land' | 'return-to-launch'
+export type MissionAltitudeReference = 'relative-to-home'
+export type MissionTransferType = 'download' | 'upload' | 'clear'
+export type MissionTransferStatus = 'pending' | 'in_progress' | 'succeeded' | 'failed' | 'cancelled'
+export type MissionFailureReason =
+  | 'unsupported'
+  | 'not_connected'
+  | 'transfer_in_progress'
+  | 'invalid_mission'
+  | 'vehicle_rejected'
+  | 'transport_error'
+  | 'timed_out'
 
 export interface VehicleCommand {
   id: string
@@ -15,6 +27,53 @@ export interface VehicleCommand {
   requestedAt: number
   completedAt?: number
   message: string
+}
+
+export interface MissionItem {
+  id: string
+  type: MissionItemType
+  latitude: number
+  longitude: number
+  altitudeMeters: number
+  altitudeReference: MissionAltitudeReference
+  holdTimeSeconds?: number
+  acceptanceRadiusMeters?: number
+}
+
+export interface MissionPlan {
+  id: string
+  name: string
+  items: MissionItem[]
+}
+
+export interface MissionTransferOperation {
+  id: string
+  type: MissionTransferType
+  status: MissionTransferStatus
+  requestedAt: number
+  completedAt?: number
+  message?: string
+  failureReason?: MissionFailureReason
+}
+
+export interface MissionOperationReceipt {
+  operationId: string
+  type: MissionTransferType
+  status: MissionTransferStatus
+  requestedAt: number
+  message?: string
+  failureReason?: MissionFailureReason
+}
+
+export interface MissionValidationIssue {
+  code: string
+  message: string
+  itemId?: string
+}
+
+export interface MissionValidationResult {
+  valid: boolean
+  issues: MissionValidationIssue[]
 }
 
 export interface VehicleIdentity {
@@ -58,6 +117,10 @@ export interface MissionSnapshot {
   currentWaypoint: number
   totalWaypoints: number
   progressPercent: number
+  activePlan?: MissionPlan
+  vehiclePlan?: MissionPlan
+  activeTransfer?: MissionTransferOperation
+  mostRecentTransfer?: MissionTransferOperation
 }
 export interface TimelineEvent {
   id: string
