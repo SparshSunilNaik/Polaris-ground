@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-import { decodeFrame, type MavlinkMessage } from '../messages/MavlinkMessage'
+import { decodeFrames, type MavlinkMessage } from '../messages/MavlinkMessage'
 
 export class MavlinkConnection {
   private unlisten: UnlistenFn | undefined
@@ -13,8 +13,7 @@ export class MavlinkConnection {
   }
   async connect(): Promise<void> {
     this.unlisten = await listen<number[]>('mavlink-frame', ({ payload }) => {
-      const message = decodeFrame(new Uint8Array(payload))
-      if (message) this.onMessage(message)
+      decodeFrames(new Uint8Array(payload)).forEach(this.onMessage)
     })
     await invoke('start_mavlink_listener', { bindAddress: this.endpoint })
   }

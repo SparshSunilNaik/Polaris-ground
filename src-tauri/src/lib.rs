@@ -32,11 +32,18 @@ fn start_mavlink_listener(
     *sender = Some(stop_sender);
     std::thread::spawn(move || {
         let mut buffer = [0_u8; 280];
+        let mut received_frames = 0_u64;
         loop {
             if stop_receiver.try_recv().is_ok() {
                 break;
             }
             if let Ok((length, _)) = socket.recv_from(&mut buffer) {
+                received_frames += 1;
+                if received_frames <= 3 || received_frames % 100 == 0 {
+                    log::debug!(
+                        "MAVLink UDP frame received; count={received_frames}, bytes={length}"
+                    );
+                }
                 let _ = app.emit("mavlink-frame", buffer[..length].to_vec());
             }
         }

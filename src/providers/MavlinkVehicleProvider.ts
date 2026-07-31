@@ -37,6 +37,9 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private listeners = new Set<(value: GroundStationSnapshot) => void>()
   private connection: MavlinkConnection
   private timestamp = 0
+  private heartbeatTimer: ReturnType<typeof setInterval> | undefined
+  private lastHeartbeat = 0
+  private receivedHeartbeats = 0
   constructor(endpoint = import.meta.env.VITE_MAVLINK_BIND_ADDRESS ?? '0.0.0.0:14550') {
     this.connection = new MavlinkConnection(endpoint, (message) => this.handle(message))
   }
@@ -44,6 +47,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     this.set({ ...this.snapshot, connection: 'connecting' })
     try {
       await this.connection.connect()
+      this.startHeartbeatMonitor()
       this.set({
         ...this.snapshot,
         connection: 'connected',
@@ -64,6 +68,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     }
   }
   async disconnect(): Promise<void> {
+    this.stopHeartbeatMonitor()
     await this.connection.disconnect()
     this.set({
       ...this.snapshot,
@@ -83,10 +88,27 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     return () => this.listeners.delete(listener)
   }
   dispose(): void {
+    this.stopHeartbeatMonitor()
     this.connection.dispose()
     this.listeners.clear()
   }
   private handle(message: Parameters<typeof translateMavlinkMessage>[0]): void {
+    if (message.messageId === 0) {
+      this.receivedHeartbeats += 1
+      if (import.meta.env.DEV && (this.receivedHeartbeats <= 3 || this.receivedHeartbeats % 50 === 0))
+        console.debug(`MAVLink heartbeat received (${this.receivedHeartbeats})`)
+      const restored = this.snapshot.connection === 'degraded'
+      this.lastHeartbeat = Date.now()
+      if (restored)
+        this.set({
+          ...this.snapshot,
+          connection: 'connected',
+          timeline: [
+            this.event('info', 'Heartbeat restored', 'Vehicle telemetry resumed.'),
+            ...this.snapshot.timeline,
+          ],
+        })
+    }
     const update = translateMavlinkMessage(message, ++this.timestamp)
     if (!update) return
     const timeline = update.event
@@ -113,5 +135,24 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private set(snapshot: GroundStationSnapshot): void {
     this.snapshot = snapshot
     this.listeners.forEach((listener) => listener(snapshot))
+  }
+  private startHeartbeatMonitor(): void {
+    this.stopHeartbeatMonitor()
+    this.lastHeartbeat = Date.now()
+    this.heartbeatTimer = setInterval(() => {
+      if (Date.now() - this.lastHeartbeat <= 3000 || this.snapshot.connection !== 'connected') return
+      this.set({
+        ...this.snapshot,
+        connection: 'degraded',
+        timeline: [
+          this.event('warning', 'Heartbeat lost', 'Vehicle telemetry has not been received for 3 seconds.'),
+          ...this.snapshot.timeline,
+        ],
+      })
+    }, 500)
+  }
+  private stopHeartbeatMonitor(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = undefined
   }
 }
