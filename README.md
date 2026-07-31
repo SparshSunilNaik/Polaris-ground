@@ -2,11 +2,11 @@
 
 Polaris Ground is a native, cross-platform Ground Control Station for operators monitoring Polaris vehicles. It presents vehicle health, mission progress, autonomy state, safety status, and operational events in product language.
 
-It is not an onboard autonomy system, flight controller, navigation system, MAVLink implementation, firmware flasher, or vehicle-command interface.
+It is not an onboard autonomy system, flight controller, navigation system, MAVLink implementation, firmware flasher, or mission-authoring tool.
 
 ## Current Milestone
 
-The product foundation is a Tauri 2 desktop application powered by a deterministic `MockVehicleProvider`. It is deliberately **monitoring only**: no vehicle transport, discovery, networking, USB, serial access, or flight controls are included.
+v0.3 adds a bounded command path for arm, disarm, takeoff, land, and return to launch. Every action requires explicit operator confirmation, is sent once, and reaches an accepted, rejected, or timed-out outcome. `MockVehicleProvider` remains the default; `MavlinkVehicleProvider` uses MAVLink UDP when configured.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ flowchart LR
   UI --> Store[Zustand state]
 ```
 
-React components consume product-facing snapshots, never protocol fields. `VehicleService` owns provider lifecycle; focused services expose mission, telemetry, and timeline presentation logic. Future transport implementations replace the provider without changing the UI.
+React components consume product-facing snapshots and actions, never protocol fields. `VehicleService` owns provider lifecycle; focused services expose mission, telemetry, and timeline presentation logic. MAVLink framing remains below the provider boundary.
 
 ## Stack
 
@@ -53,7 +53,7 @@ Run `pnpm lint`, `pnpm test`, `pnpm build`, and the Cargo checks before changes.
 
 ## Current Limitations
 
-The application is simulated and monitoring-only. Video, maps, mission editing, diagnostics, engineering mode, vehicle discovery, transport, and release signing are intentionally deferred.
+The command surface is intentionally limited. Mission upload, parameter writes, firmware flashing, serial/USB access, scripting, and autonomous command execution are excluded. Video, maps, mission editing, diagnostics, engineering mode, vehicle discovery, and release signing remain deferred.
 
 ## Roadmap
 

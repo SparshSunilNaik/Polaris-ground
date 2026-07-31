@@ -5,6 +5,17 @@ export type AutonomyState =
   'unavailable' | 'idle' | 'preparing' | 'active' | 'paused' | 'landing' | 'interrupted' | 'fault'
 export type MissionState = 'idle' | 'ready' | 'running' | 'completed' | 'interrupted' | 'failed'
 export type SafetyState = 'unknown' | 'safe' | 'caution' | 'warning' | 'critical'
+export type VehicleAction = 'arm' | 'disarm' | 'takeoff' | 'land' | 'returnToLaunch'
+export type CommandStatus = 'pending' | 'accepted' | 'rejected' | 'timed_out'
+
+export interface VehicleCommand {
+  id: string
+  action: VehicleAction
+  status: CommandStatus
+  requestedAt: number
+  completedAt?: number
+  message: string
+}
 
 export interface VehicleIdentity {
   id: string
@@ -63,5 +74,6 @@ export interface GroundStationSnapshot {
   mission: MissionSnapshot
   safety: SafetyState
   avoidanceStatus: string
+  commands: VehicleCommand[]
   timeline: TimelineEvent[]
 }

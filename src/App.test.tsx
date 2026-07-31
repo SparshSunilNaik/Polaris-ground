@@ -5,12 +5,14 @@ import App from './App'
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockRejectedValue(new Error('browser')) }))
 describe('App', () => {
   afterEach(() => vi.clearAllMocks())
-  it('renders telemetry, timeline and its monitoring-only constraint', async () => {
+  it('renders telemetry, timeline, and confirmation-gated vehicle actions', async () => {
     render(<App />)
     expect(await screen.findByText(/monitoring only/i)).toBeVisible()
     expect(screen.getByText('Battery')).toBeVisible()
     expect(screen.getByText('Recent activity')).toBeVisible()
-    expect(screen.queryByText(/takeoff|land|rtl|kill/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Land' }))
+    expect(screen.getByRole('dialog')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Confirm Land' })).toBeVisible()
   })
   it('navigates to a clean placeholder workspace', async () => {
     render(<App />)

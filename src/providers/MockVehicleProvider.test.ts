@@ -31,4 +31,17 @@ describe('MockVehicleProvider', () => {
     vi.advanceTimersByTime(5000)
     expect(provider.getSnapshot()).toEqual(snapshot)
   })
+
+  it('simulates an acknowledged command and rejects a duplicate while it is pending', async () => {
+    vi.useFakeTimers()
+    const provider = new MockVehicleProvider()
+    await provider.connect()
+    const command = await provider.sendCommand('land')
+    const duplicate = await provider.sendCommand('land')
+    expect(command.status).toBe('pending')
+    expect(duplicate.status).toBe('rejected')
+    vi.advanceTimersByTime(300)
+    expect(provider.getSnapshot().commands.find((entry) => entry.id === command.id)?.status).toBe('accepted')
+    expect(provider.getSnapshot().timeline[0]?.label).toBe('Land accepted')
+  })
 })

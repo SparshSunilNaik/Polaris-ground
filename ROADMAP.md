@@ -33,7 +33,6 @@ Maintaining stable interfaces between the UI, domain services, providers,
 adapters, and transport is preferred over introducing new abstractions
 prematurely.
 
-
 ## Architecture Direction
 
 ```text
@@ -54,11 +53,11 @@ UI components must not import MAVLink types. Domain models belong above the tran
 
 Polaris Ground supervises and commands vehicles. Polaris Core owns autonomy logic, planning, navigation, reactive avoidance, safety supervision, and mission execution.
 
-| Polaris Ground | Polaris Core |
-| --- | --- |
-| Operator interface and feedback | Autonomy and planning |
-| Telemetry, command, and mission supervision | Navigation and reactive avoidance |
-| Visualization and diagnostics | Safety supervision and mission execution |
+| Polaris Ground                              | Polaris Core                             |
+| ------------------------------------------- | ---------------------------------------- |
+| Operator interface and feedback             | Autonomy and planning                    |
+| Telemetry, command, and mission supervision | Navigation and reactive avoidance        |
+| Visualization and diagnostics               | Safety supervision and mission execution |
 
 ## Key Design Decisions
 
@@ -71,7 +70,6 @@ Current architectural decisions include:
 - Ground supervises vehicles but does not implement autonomy.
 - Read and write transport paths remain independently testable.
 - Safety-sensitive actions always require observable operator feedback.
-
 
 ## Completed Milestones
 
@@ -108,16 +106,15 @@ Known limitations:
 
 ### v0.3.0 — Command Transport and Vehicle Actions
 
-Goal: introduce the first safe outbound MAVLink write path.
-
-Candidate scope:
+Complete. Polaris Ground now provides a constrained, confirmation-gated outbound command path validated against PX4 SITL without QGroundControl.
 
 - Arm, disarm, takeoff, land, Return to Launch, and selected flight-mode changes
 - COMMAND_LONG encoding and COMMAND_ACK handling
 - Pending, accepted, rejected, and timed-out command states
 - Duplicate-command prevention and timeout handling
 - Explicit confirmation for safety-sensitive actions
-- Mock command simulation and PX4 SITL command validation
+- Native UDP command transport and GCS heartbeat
+- Standalone Ground Control Station sender identity and PX4 SITL validation
 
 Architecture:
 
@@ -229,6 +226,6 @@ This section is non-committed exploration, not planned delivery scope.
 
 ## Current Next Step
 
-The immediate next milestone is **v0.3.0 — Command Transport and Vehicle Actions**.
+The immediate next milestone is **v0.4.0 — Mission Management**.
 
 Before implementation, define command-domain interfaces, acknowledgement and timeout models, confirmation policy, supported PX4 commands, command safety constraints, and the SITL validation procedure.

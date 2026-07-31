@@ -8,6 +8,7 @@ use tauri::Emitter;
 #[derive(Default)]
 struct MavlinkListenerState {
     stop_sender: Mutex<Option<mpsc::Sender<()>>>,
+    socket: Mutex<Option<UdpSocket>>,
 }
 
 #[tauri::command]
@@ -28,8 +29,13 @@ fn start_mavlink_listener(
     socket
         .set_read_timeout(Some(Duration::from_millis(250)))
         .map_err(|error| error.to_string())?;
+    let sender_socket = socket.try_clone().map_err(|error| error.to_string())?;
     let (stop_sender, stop_receiver) = mpsc::channel();
     *sender = Some(stop_sender);
+    *state
+        .socket
+        .lock()
+        .map_err(|_| "MAVLink socket state is unavailable")? = Some(sender_socket);
     std::thread::spawn(move || {
         let mut buffer = [0_u8; 280];
         let mut received_frames = 0_u64;
@@ -60,6 +66,35 @@ fn stop_mavlink_listener(state: tauri::State<MavlinkListenerState>) -> Result<()
     if let Some(stop) = sender.take() {
         let _ = stop.send(());
     }
+    *state
+        .socket
+        .lock()
+        .map_err(|_| "MAVLink socket state is unavailable")? = None;
+    Ok(())
+}
+
+#[tauri::command]
+fn send_mavlink_frame(
+    state: tauri::State<MavlinkListenerState>,
+    remote_address: String,
+    frame: Vec<u8>,
+) -> Result<(), String> {
+    if frame.is_empty() {
+        return Err("MAVLink frame cannot be empty".into());
+    }
+    let socket = state
+        .socket
+        .lock()
+        .map_err(|_| "MAVLink socket state is unavailable")?;
+    let socket = socket.as_ref().ok_or("MAVLink listener is not running")?;
+    let local_address = socket.local_addr().map_err(|error| error.to_string())?;
+    socket
+        .send_to(&frame, &remote_address)
+        .map_err(|error| format!("Unable to send MAVLink UDP frame: {error}"))?;
+    log::info!(
+        "MAVLink command frame sent from {local_address} to {remote_address}; bytes={}",
+        frame.len()
+    );
     Ok(())
 }
 
@@ -99,7 +134,8 @@ pub fn run() {
             get_app_info,
             get_platform_info,
             start_mavlink_listener,
-            stop_mavlink_listener
+            stop_mavlink_listener,
+            send_mavlink_frame
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

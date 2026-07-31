@@ -1,4 +1,4 @@
-import type { GroundStationSnapshot } from '../domain/models'
+import type { GroundStationSnapshot, VehicleAction, VehicleCommand } from '../domain/models'
 import type { VehicleProvider } from '../providers/VehicleProvider'
 
 export class VehicleService {
@@ -18,6 +18,9 @@ export class VehicleService {
   }
   subscribe(listener: (snapshot: GroundStationSnapshot) => void): () => void {
     return this.provider.subscribe(listener)
+  }
+  sendCommand(action: VehicleAction): Promise<VehicleCommand> {
+    return this.provider.sendCommand(action)
   }
   dispose(): void {
     this.provider.dispose()

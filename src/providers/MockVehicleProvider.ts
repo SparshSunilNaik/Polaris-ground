@@ -1,4 +1,4 @@
-import type { GroundStationSnapshot, TimelineEvent } from '../domain/models'
+import type { GroundStationSnapshot, TimelineEvent, VehicleAction, VehicleCommand } from '../domain/models'
 import type { VehicleProvider } from './VehicleProvider'
 
 const initialSnapshot = (): GroundStationSnapshot => ({
@@ -21,6 +21,7 @@ const initialSnapshot = (): GroundStationSnapshot => ({
   },
   safety: 'safe',
   avoidanceStatus: 'Standby',
+  commands: [],
   timeline: [
     {
       id: 'start',
@@ -37,6 +38,7 @@ export class MockVehicleProvider implements VehicleProvider {
   private listeners = new Set<(snapshot: GroundStationSnapshot) => void>()
   private timer: ReturnType<typeof setInterval> | undefined
   private tick = 0
+  private commandSequence = 0
 
   async connect(): Promise<void> {
     this.update({ connection: 'connecting' })
@@ -55,6 +57,21 @@ export class MockVehicleProvider implements VehicleProvider {
     this.listeners.add(listener)
     listener(this.snapshot)
     return () => this.listeners.delete(listener)
+  }
+  async sendCommand(action: VehicleAction): Promise<VehicleCommand> {
+    const duplicate = this.snapshot.commands.find(
+      (command) => command.action === action && command.status === 'pending',
+    )
+    if (duplicate)
+      return this.recordCommand(action, 'rejected', 'A matching command is already awaiting a response.')
+    if (this.snapshot.connection !== 'connected')
+      return this.recordCommand(action, 'rejected', 'Vehicle is not connected.')
+    const command = this.recordCommand(action, 'pending', `${actionLabel(action)} requested.`)
+    setTimeout(
+      () => this.completeCommand(command.id, 'accepted', `${actionLabel(action)} accepted by vehicle.`),
+      300,
+    )
+    return command
   }
   dispose(): void {
     this.stopTimer()
@@ -128,4 +145,49 @@ export class MockVehicleProvider implements VehicleProvider {
   private emit(): void {
     this.listeners.forEach((listener) => listener(this.snapshot))
   }
+  private recordCommand(
+    action: VehicleAction,
+    status: VehicleCommand['status'],
+    message: string,
+  ): VehicleCommand {
+    const command: VehicleCommand = {
+      id: `mock-command-${++this.commandSequence}`,
+      action,
+      status,
+      requestedAt: Date.now(),
+      completedAt: status === 'pending' ? undefined : Date.now(),
+      message,
+    }
+    this.snapshot = {
+      ...this.snapshot,
+      commands: [command, ...this.snapshot.commands].slice(0, 20),
+      timeline: [commandEvent(command, this.tick), ...this.snapshot.timeline].slice(0, 30),
+    }
+    this.emit()
+    return command
+  }
+  private completeCommand(id: string, status: VehicleCommand['status'], message: string): void {
+    const current = this.snapshot.commands.find((command) => command.id === id)
+    if (!current || current.status !== 'pending') return
+    const command = { ...current, status, completedAt: Date.now(), message }
+    this.snapshot = {
+      ...this.snapshot,
+      commands: this.snapshot.commands.map((entry) => (entry.id === id ? command : entry)),
+      timeline: [commandEvent(command, this.tick), ...this.snapshot.timeline].slice(0, 30),
+    }
+    this.emit()
+  }
 }
+
+const actionLabel = (action: VehicleAction): string =>
+  ({ arm: 'Arm', disarm: 'Disarm', takeoff: 'Take off', land: 'Land', returnToLaunch: 'Return to launch' })[
+    action
+  ]
+
+const commandEvent = (command: VehicleCommand, timestamp: number): TimelineEvent => ({
+  id: `command-${command.id}-${command.status}`,
+  timestamp,
+  severity: command.status === 'rejected' || command.status === 'timed_out' ? 'warning' : 'info',
+  label: `${actionLabel(command.action)} ${command.status.replace('_', ' ')}`,
+  message: command.message,
+})
