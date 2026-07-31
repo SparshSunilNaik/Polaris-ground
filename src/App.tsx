@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { CameraPlaceholder } from './components/dashboard/CameraPlaceholder'
 import { MissionSummary } from './components/dashboard/MissionSummary'
 import { TimelineCard } from './components/dashboard/TimelineCard'
+import { VehicleActions } from './components/dashboard/VehicleActions'
 import { VehicleStatusCard } from './components/dashboard/VehicleStatusCard'
 import { AppShell } from './components/layout/AppShell'
 import { NavigationRail } from './components/layout/NavigationRail'
@@ -13,21 +14,31 @@ import { getAppInfo } from './lib/tauri'
 import { createGroundStationService, startGroundStation } from './services/GroundStationService'
 import { getTelemetryHealth } from './services/TelemetryService'
 import { useGroundStationStore, useWorkspaceStore } from './stores/groundStationStore'
+import type { VehicleAction } from './domain/models'
+import type { VehicleService } from './services/VehicleService'
 import './index.css'
 
 export default function App() {
+  const serviceRef = useRef<VehicleService | null>(null)
   const snapshot = useGroundStationStore((state) => state.snapshot)
   const page = useWorkspaceStore((state) => state.activeWorkspace)
   const setPage = useWorkspaceStore((state) => state.setActiveWorkspace)
   useEffect(() => {
     const service = createGroundStationService()
+    serviceRef.current = service
     const stop = startGroundStation(service)
     void getAppInfo().catch(() => undefined)
-    return stop
+    return () => {
+      serviceRef.current = null
+      stop()
+    }
   }, [])
   if (!snapshot) return <main className="loading-state">Loading Polaris Ground...</main>
   const { telemetry } = snapshot
   const telemetryHealth = getTelemetryHealth(telemetry)
+  const sendCommand = (action: VehicleAction) => {
+    void serviceRef.current?.sendCommand(action)
+  }
   return (
     <AppShell>
       <NavigationRail active={page} onSelect={setPage} />
@@ -71,6 +82,9 @@ export default function App() {
               <section className="dashboard-grid dashboard-secondary">
                 <MissionSummary snapshot={snapshot} />
                 <TimelineCard events={snapshot.timeline} />
+              </section>
+              <section className="dashboard-grid dashboard-actions">
+                <VehicleActions snapshot={snapshot} onConfirm={sendCommand} />
               </section>
             </>
           )}

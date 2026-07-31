@@ -1,6 +1,6 @@
-# PX4 SITL Read-Only MAVLink Validation
+# PX4 SITL MAVLink Validation
 
-Polaris Ground is a read-only MAVLink consumer. It has no command, mission, parameter, firmware, serial, USB, or control capability.
+Polaris Ground receives telemetry and can send confirmation-gated arm, disarm, takeoff, land, and return-to-launch requests. It has no mission upload, parameter, firmware, serial, USB, or scripting capability.
 
 ## Verified Fallback Topology
 
@@ -18,7 +18,7 @@ Observed live values were system ID `1`, component ID `1`, heading approximately
 ## Provider Selection
 
 ```sh
-VITE_VEHICLE_PROVIDER=mavlink VITE_MAVLINK_BIND_ADDRESS=0.0.0.0:14560 pnpm tauri dev
+VITE_VEHICLE_PROVIDER=mavlink VITE_MAVLINK_BIND_ADDRESS=0.0.0.0:14560 VITE_MAVLINK_REMOTE_ADDRESS=127.0.0.1:14540 pnpm tauri dev
 ```
 
 The default is `VITE_VEHICLE_PROVIDER=mock`.
@@ -34,7 +34,11 @@ The dedicated `14560` stream is not yet validated. It remains the future option 
 
 ## Validation
 
-Verified live: heartbeat discovery, system/component IDs, attitude heading, altitude, speed, battery value, timeout, single loss event, automatic reconnect, single restoration event, and UI recovery. STATUSTEXT was not observed. The MAVLink 2 system/component header offset regression has a deterministic unit test.
+Verified live in v0.2: heartbeat discovery, system/component IDs, attitude heading, altitude, speed, battery value, timeout, single loss event, automatic reconnect, single restoration event, and UI recovery. STATUSTEXT was not observed. The MAVLink 2 system/component header offset regression has a deterministic unit test.
+
+## v0.3 Command Procedure
+
+PX4 SITL command validation is not runnable in this workspace because PX4 SITL is not installed. With a live PX4 command endpoint configured as `VITE_MAVLINK_REMOTE_ADDRESS`, validate arm, disarm, takeoff, land, and return to launch individually. For each action, confirm it in the UI and verify exactly one outbound `COMMAND_LONG`, the matching `COMMAND_ACK`, the resulting timeline entry, and the final accepted or rejected state. Disable or interrupt the command endpoint once to verify the distinct timed-out outcome. Do not run a competing ground-control station that can issue commands during this procedure.
 
 ## Parser Integrity
 

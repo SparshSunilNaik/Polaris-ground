@@ -187,6 +187,66 @@ nav button.active {
 .dashboard-secondary {
   grid-template-columns: 1fr 1.25fr;
 }
+.dashboard-actions {
+  margin-top: var(--space-4);
+}
+.actions-note {
+  margin: var(--space-3) 0 var(--space-4);
+  color: var(--muted);
+  font-size: 13px;
+}
+.action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.action-button,
+.confirmation-actions button {
+  padding: 9px 12px;
+  border: 1px solid #4a6e65;
+  border-radius: var(--radius-sm);
+  background: var(--accent-ink);
+  color: var(--accent);
+  cursor: pointer;
+}
+.action-button.danger,
+.confirm-action {
+  border-color: #86504a;
+  background: #422924;
+  color: var(--danger);
+}
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.confirmation-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 62%);
+}
+.confirmation-dialog {
+  width: min(420px, 100%);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.confirmation-dialog > p:not(.eyebrow) {
+  margin: var(--space-3) 0 var(--space-5);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
 .panel,
 .metric,
 .empty-state {
