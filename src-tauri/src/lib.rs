@@ -1,4 +1,61 @@
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+use std::{
+    net::UdpSocket,
+    sync::{mpsc, Mutex},
+    time::Duration,
+};
+use tauri::Emitter;
+
+#[derive(Default)]
+struct MavlinkListenerState {
+    stop_sender: Mutex<Option<mpsc::Sender<()>>>,
+}
+
+#[tauri::command]
+fn start_mavlink_listener(
+    app: tauri::AppHandle,
+    state: tauri::State<MavlinkListenerState>,
+    bind_address: String,
+) -> Result<(), String> {
+    let mut sender = state
+        .stop_sender
+        .lock()
+        .map_err(|_| "MAVLink listener state is unavailable")?;
+    if sender.is_some() {
+        return Ok(());
+    }
+    let socket = UdpSocket::bind(&bind_address)
+        .map_err(|error| format!("Unable to bind MAVLink UDP listener: {error}"))?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .map_err(|error| error.to_string())?;
+    let (stop_sender, stop_receiver) = mpsc::channel();
+    *sender = Some(stop_sender);
+    std::thread::spawn(move || {
+        let mut buffer = [0_u8; 280];
+        loop {
+            if stop_receiver.try_recv().is_ok() {
+                break;
+            }
+            if let Ok((length, _)) = socket.recv_from(&mut buffer) {
+                let _ = app.emit("mavlink-frame", buffer[..length].to_vec());
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_mavlink_listener(state: tauri::State<MavlinkListenerState>) -> Result<(), String> {
+    let mut sender = state
+        .stop_sender
+        .lock()
+        .map_err(|_| "MAVLink listener state is unavailable")?;
+    if let Some(stop) = sender.take() {
+        let _ = stop.send(());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn get_app_info() -> AppInfo {
     AppInfo {
@@ -27,9 +84,16 @@ struct PlatformInfo {
     architecture: &'static str,
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_app_info, get_platform_info])
+        .manage(MavlinkListenerState::default())
+        .invoke_handler(tauri::generate_handler![
+            get_app_info,
+            get_platform_info,
+            start_mavlink_listener,
+            stop_mavlink_listener
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
