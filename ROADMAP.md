@@ -137,21 +137,13 @@ Mission upload is explicitly excluded from v0.3.0.
 
 ### v0.4.0 — Mission Management
 
-Candidate scope:
+Complete. Polaris Ground provides transport-independent mission management and PX4 SITL-validated transfer behavior while operating as a standalone Ground Control Station.
 
-- Mission download and upload
-- Waypoint list and editing
-- Mission validation, progress, pause/resume where supported, and clear
-- Operator confirmation before upload or replacement
-- Synchronization between vehicle and local mission state
-
-Acceptance criteria:
-
-- Mission state uses domain models
-- UI is independent of MAVLink mission message types
-- Partial or failed uploads are reported clearly
-- Vehicle and local mission differences are visible
-- PX4 SITL validation is complete
+- Mission domain model, lifecycle, validation, monitoring, and local-versus-vehicle plan state
+- MAVLink mission upload, download, clear, acknowledgement handling, bounded resend, and timeout behavior
+- Mission monitoring through current-item and item-reached updates
+- Accessible local mission workspace with confirmation-gated transfer actions and read-only vehicle plans
+- Live PX4 SITL validation of standalone Ground connection, command regression, mission transfer, readback, clear, and empty mission handling
 
 Advanced autonomous planning remains in Polaris Core.
 
@@ -226,6 +218,4 @@ This section is non-committed exploration, not planned delivery scope.
 
 ## Current Next Step
 
-The immediate next milestone is **v0.4.0 — Mission Management**.
-
-Before implementation, define command-domain interfaces, acknowledgement and timeout models, confirmation policy, supported PX4 commands, command safety constraints, and the SITL validation procedure.
+The immediate next milestone is **v0.5.0 — Operator Workspace**.

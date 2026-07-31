@@ -1,5 +1,47 @@
-import type { GroundStationSnapshot, TimelineEvent, VehicleAction, VehicleCommand } from '../domain/models'
+import { completeMissionTransfer, createMissionTransfer } from '../domain/missionTransfer'
+import { validateMissionPlan } from '../domain/missionValidation'
+import type {
+  GroundStationSnapshot,
+  MissionOperationReceipt,
+  MissionPlan,
+  MissionTransferType,
+  MissionValidationResult,
+  TimelineEvent,
+  VehicleAction,
+  VehicleCommand,
+} from '../domain/models'
 import type { VehicleProvider } from './VehicleProvider'
+
+const perimeterSurveyPlan: MissionPlan = {
+  id: 'perimeter-survey',
+  name: 'Perimeter Survey',
+  items: [
+    {
+      id: 'takeoff',
+      type: 'takeoff',
+      latitude: 37.7749,
+      longitude: -122.4194,
+      altitudeMeters: 24,
+      altitudeReference: 'relative-to-home',
+    },
+    {
+      id: 'survey-1',
+      type: 'waypoint',
+      latitude: 37.7751,
+      longitude: -122.4192,
+      altitudeMeters: 24,
+      altitudeReference: 'relative-to-home',
+    },
+    {
+      id: 'land',
+      type: 'land',
+      latitude: 37.7749,
+      longitude: -122.4194,
+      altitudeMeters: 0,
+      altitudeReference: 'relative-to-home',
+    },
+  ],
+}
 
 const initialSnapshot = (): GroundStationSnapshot => ({
   connection: 'disconnected',
@@ -18,6 +60,8 @@ const initialSnapshot = (): GroundStationSnapshot => ({
     currentWaypoint: 3,
     totalWaypoints: 8,
     progressPercent: 38,
+    activePlan: perimeterSurveyPlan,
+    vehiclePlan: perimeterSurveyPlan,
   },
   safety: 'safe',
   avoidanceStatus: 'Standby',
@@ -39,6 +83,7 @@ export class MockVehicleProvider implements VehicleProvider {
   private timer: ReturnType<typeof setInterval> | undefined
   private tick = 0
   private commandSequence = 0
+  private missionSequence = 0
 
   async connect(): Promise<void> {
     this.update({ connection: 'connecting' })
@@ -72,6 +117,34 @@ export class MockVehicleProvider implements VehicleProvider {
       300,
     )
     return command
+  }
+  async downloadMission(): Promise<MissionOperationReceipt> {
+    return this.completeMissionOperation(
+      'download',
+      'Mission download completed.',
+      this.snapshot.mission.vehiclePlan,
+    )
+  }
+  async uploadMission(plan: MissionPlan): Promise<MissionOperationReceipt> {
+    const validation = this.validateMission(plan)
+    if (!validation.valid)
+      return this.completeMissionOperation(
+        'upload',
+        validation.issues[0]?.message ?? 'Mission is invalid.',
+        undefined,
+        'invalid_mission',
+      )
+    return this.completeMissionOperation('upload', 'Mission upload accepted.', plan)
+  }
+  async clearMission(): Promise<MissionOperationReceipt> {
+    return this.completeMissionOperation('clear', 'Mission cleared.', {
+      id: 'mock-empty-mission',
+      name: 'Vehicle mission',
+      items: [],
+    })
+  }
+  validateMission(plan: MissionPlan): MissionValidationResult {
+    return validateMissionPlan(plan)
   }
   dispose(): void {
     this.stopTimer()
@@ -176,6 +249,43 @@ export class MockVehicleProvider implements VehicleProvider {
       timeline: [commandEvent(command, this.tick), ...this.snapshot.timeline].slice(0, 30),
     }
     this.emit()
+  }
+  private completeMissionOperation(
+    type: MissionTransferType,
+    message: string,
+    vehiclePlan?: MissionPlan,
+    failureReason?: 'invalid_mission',
+  ): MissionOperationReceipt {
+    const transfer = completeMissionTransfer(
+      createMissionTransfer(`mock-mission-${++this.missionSequence}`, type, Date.now(), message),
+      failureReason ? 'failed' : 'succeeded',
+      Date.now(),
+      message,
+      failureReason,
+    )
+    this.snapshot = {
+      ...this.snapshot,
+      mission: {
+        ...this.snapshot.mission,
+        activePlan: type === 'upload' && vehiclePlan ? vehiclePlan : this.snapshot.mission.activePlan,
+        vehiclePlan: vehiclePlan ?? this.snapshot.mission.vehiclePlan,
+        name: vehiclePlan?.name ?? this.snapshot.mission.name,
+        currentWaypoint: type === 'clear' ? 0 : this.snapshot.mission.currentWaypoint,
+        totalWaypoints:
+          type === 'clear' ? 0 : (vehiclePlan?.items.length ?? this.snapshot.mission.totalWaypoints),
+        progressPercent: type === 'clear' ? 0 : this.snapshot.mission.progressPercent,
+        mostRecentTransfer: transfer,
+      },
+    }
+    this.emit()
+    return {
+      operationId: transfer.id,
+      type: transfer.type,
+      status: transfer.status,
+      requestedAt: transfer.requestedAt,
+      message: transfer.message,
+      failureReason: transfer.failureReason,
+    }
   }
 }
 

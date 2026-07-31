@@ -1,4 +1,11 @@
-import type { GroundStationSnapshot, VehicleAction, VehicleCommand } from '../domain/models'
+import type {
+  GroundStationSnapshot,
+  MissionOperationReceipt,
+  MissionPlan,
+  MissionValidationResult,
+  VehicleAction,
+  VehicleCommand,
+} from '../domain/models'
 
 export interface VehicleProvider {
   connect(): Promise<void>
@@ -6,5 +13,9 @@ export interface VehicleProvider {
   getSnapshot(): GroundStationSnapshot
   subscribe(listener: (snapshot: GroundStationSnapshot) => void): () => void
   sendCommand(action: VehicleAction): Promise<VehicleCommand>
+  downloadMission(): Promise<MissionOperationReceipt>
+  uploadMission(plan: MissionPlan): Promise<MissionOperationReceipt>
+  clearMission(): Promise<MissionOperationReceipt>
+  validateMission(plan: MissionPlan): MissionValidationResult
   dispose(): void
 }
