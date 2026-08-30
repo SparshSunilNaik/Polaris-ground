@@ -7,6 +7,8 @@ export type MissionState = 'idle' | 'ready' | 'running' | 'completed' | 'interru
 export type SafetyState = 'unknown' | 'safe' | 'caution' | 'warning' | 'critical'
 export type VehicleAction = 'arm' | 'disarm' | 'takeoff' | 'land' | 'returnToLaunch'
 export type CommandStatus = 'pending' | 'accepted' | 'rejected' | 'timed_out'
+export type ManualControlStatus =
+  'disabled' | 'prestreaming' | 'entering_offboard' | 'enabled_neutral' | 'active' | 'unavailable' | 'failed'
 export type MissionItemType = 'takeoff' | 'waypoint' | 'land' | 'return-to-launch'
 export type MissionAltitudeReference = 'relative-to-home'
 export type MissionTransferType = 'download' | 'upload' | 'clear'
@@ -26,6 +28,19 @@ export interface VehicleCommand {
   status: CommandStatus
   requestedAt: number
   completedAt?: number
+  message: string
+}
+
+export interface ManualControlInput {
+  forward: number
+  right: number
+  up: number
+  yawRight: number
+}
+
+export interface ManualControlSnapshot {
+  status: ManualControlStatus
+  input: ManualControlInput
   message: string
 }
 
@@ -138,5 +153,6 @@ export interface GroundStationSnapshot {
   safety: SafetyState
   avoidanceStatus: string
   commands: VehicleCommand[]
+  manualControl: ManualControlSnapshot
   timeline: TimelineEvent[]
 }

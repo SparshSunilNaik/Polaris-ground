@@ -29,7 +29,7 @@ export const translateMavlinkMessage = (message: MavlinkMessage, timestamp: numb
           componentId: message.componentId,
           name: `Vehicle ${message.systemId}`,
           type: 'MAVLink vehicle',
-          flightMode: 'Active',
+          flightMode: flightMode(payload),
           armed: (payload[6] & 0x80) !== 0,
         },
       }
@@ -80,4 +80,10 @@ export const translateMavlinkMessage = (message: MavlinkMessage, timestamp: numb
     default:
       return null
   }
+}
+
+const flightMode = (payload: Uint8Array): string => {
+  if (payload.length < 7) return 'Unknown'
+  const mainMode = (view(payload).getUint32(0, true) >>> 16) & 0xff
+  return { 3: 'Position', 4: 'Mission', 5: 'Return', 6: 'Offboard', 9: 'Land' }[mainMode] ?? 'Active'
 }
