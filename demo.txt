@@ -1,0 +1,297 @@
+==================================================
+POLARIS GROUND DEMO RUNBOOK
+==================================================
+
+USE ONLY: /Applications/Polaris Ground.app
+DO NOT RUN: pnpm tauri dev, Vite, QGroundControl, or another MAVSDK/Polaris flight app.
+
+Packaged connection: Ground 127.0.0.1:14540 <-> PX4 127.0.0.1:14580
+
+==================================================
+1. PRE-DEMO SETUP
+==================================================
+
+* Close QGroundControl and all MAVSDK/Polaris flight apps.
+* Connect power; silence notifications.
+* Open one Terminal for PX4 and keep it open.
+* Arrange Gazebo beside Polaris Ground before Manual Flight.
+* During Manual Flight, keep Ground focused. Clicking/hiding another app disables it.
+
+Optional clean start:
+
+cd ~/Documents/Polaris/PX4-Autopilot
+./scripts/stop_polaris_sim.sh
+
+==================================================
+2. START PX4 / GAZEBO
+==================================================
+
+Terminal:
+
+cd ~/Documents/Polaris/PX4-Autopilot
+POLARIS_WORLD=antarctica ./scripts/start_polaris_sim.sh
+
+The launcher configures the environment and automatically starts the Gazebo server,
+separate macOS Gazebo GUI, gz_x500_mono_cam vehicle, and PX4 SITL.
+
+WAIT FOR:
+* Gazebo opens with the stationary X500.
+* Terminal prints "Gazebo world antarctica is ready".
+* PX4 completes startup and keeps running.
+
+[SHOW GAZEBO] [PAUSE 2 SEC]
+
+==================================================
+3. OPEN POLARIS GROUND
+==================================================
+
+Second Terminal tab/window:
+
+open "/Applications/Polaris Ground.app"
+
+Allow local-network access if requested.
+
+WAIT FOR:
+* Operate workspace renders.
+* Top bar shows CONNECTED.
+* Vehicle identity shows Vehicle 1 and SYS-1.
+
+[SHOW POLARIS GROUND] [PAUSE 2 SEC]
+
+==================================================
+4. VERIFY CONNECTION
+==================================================
+
+Confirm on Operate:
+* CONNECTED and SYS-1 are visible.
+* Vehicle summary and timeline update.
+* Vehicle action buttons are enabled.
+* Manual Flight says DISABLED.
+
+If SYS-1 is absent, use DEMO RECOVERY. Do not issue commands.
+
+==================================================
+5. SHOW TELEMETRY
+==================================================
+
+[SHOW POLARIS GROUND]
+
+Show: battery, altitude, ground speed, link quality, heading, mission summary,
+and Recent activity.
+
+[PAUSE 2 SEC FOR TELEMETRY]
+
+==================================================
+6. ARM
+==================================================
+
+1. Click Arm.
+2. Click Confirm Arm in "Arm?".
+3. Wait for "Arm accepted".
+4. Confirm "Vehicle armed".
+
+Continue to Take off within about 5 seconds; PX4 may auto-disarm if left on the ground.
+
+==================================================
+7. TAKEOFF
+==================================================
+
+1. Click Take off.
+2. Click Confirm Take off in "Take off?".
+3. Wait for "Take off accepted".
+4. Watch altitude rise; wait for a stable airborne hover.
+
+[SHOW GAZEBO DURING CLIMB]
+[RETURN FOCUS TO POLARIS GROUND]
+
+==================================================
+8. ENABLE MANUAL FLIGHT
+==================================================
+
+1. Keep Polaris Ground focused.
+2. Click Enable Keyboard Control.
+3. Do not press movement keys yet.
+
+WAIT FOR: PREPARING -> ENTERING OFFBOARD -> Offboard -> ENABLED NEUTRAL.
+Confirm Input says Neutral setpoint.
+
+[WAIT FOR ENABLED NEUTRAL]
+
+Do not continue unless Offboard and ENABLED NEUTRAL are visible.
+
+==================================================
+9. WASD MOVEMENT
+==================================================
+
+Keep Ground focused. After every release, wait for Neutral setpoint.
+
+* [HOLD W ~1.5 SEC] Forward; expect ACTIVE and about 0.5 m/s. [RELEASE W]
+* [HOLD S ~1 SEC] Backward. [RELEASE S]
+* [HOLD A ~1 SEC] Left. [RELEASE A]
+* [HOLD D ~1 SEC] Right. [RELEASE D]
+
+[OBSERVE GAZEBO WITHOUT CLICKING IT]
+
+==================================================
+10. ALTITUDE CONTROL
+==================================================
+
+Only continue with several metres of ground clearance.
+
+* [HOLD ARROW UP ~1 SEC] Climb slightly. [RELEASE ARROW UP]
+* Wait for Neutral setpoint and note altitude increase.
+* [HOLD ARROW DOWN ~1 SEC] Return near prior altitude. [RELEASE ARROW DOWN]
+* Wait for Neutral setpoint.
+
+WARNING: Never hold Arrow Down near the ground.
+
+==================================================
+11. YAW CONTROL
+==================================================
+
+* Note heading.
+* [HOLD ARROW LEFT ~1 SEC] Yaw left. [RELEASE ARROW LEFT]
+* Confirm heading changes; wait for Neutral setpoint.
+* [HOLD ARROW RIGHT ~1 SEC] Yaw right. [RELEASE ARROW RIGHT]
+* Confirm heading changes back; wait for Neutral setpoint.
+
+==================================================
+12. COMBINED MOVEMENT
+==================================================
+
+1. [HOLD W + D TOGETHER ~1 SEC]
+2. Confirm both W and D indicators are active.
+3. [RELEASE W AND D]
+4. Wait for ENABLED NEUTRAL / Neutral setpoint.
+
+Do not hold combined movement longer than 1 second.
+
+==================================================
+13. SAFETY / ESCAPE
+==================================================
+
+1. From ENABLED NEUTRAL, press Escape once.
+2. Confirm Manual Flight says DISABLED and Input says Neutral setpoint.
+3. Wait for ground speed to return to 0.0 m/s.
+4. Confirm the vehicle remains armed. Escape must NOT disarm.
+
+[PAUSE 2 SEC ON DISABLED + 0.0 m/s]
+
+SAFETY:
+* Manual Flight must be DISABLED before Mission, RTL, or Land.
+* Never trigger RTL/Land while Manual Flight owns Offboard.
+* Unexpected movement: release all keys, press Escape, then Land.
+
+==================================================
+14. MISSION WORKSPACE
+==================================================
+
+This transfers one waypoint; it does NOT execute the mission.
+
+1. Confirm Manual Flight is DISABLED; click Mission.
+2. Show live Vehicle Position.
+3. Keep "Untitled mission" or enter "Demo waypoint".
+4. Click Add item once; leave type as Waypoint.
+5. For item 1, click Use position.
+6. Enter 10 in Altitude m; leave Hold s and Radius m at 0.
+7. Wait for "Mission validation passed."
+
+Upload:
+1. Click Upload mission -> Confirm Upload mission.
+2. Wait for "Latest transfer accepted" / "Mission upload accepted."
+
+Readback:
+1. Click Download from vehicle -> Confirm Download mission.
+2. Wait for "Mission download completed."
+3. Show item 1 under Confirmed vehicle plan.
+
+Cleanup:
+1. Click Clear vehicle mission -> Confirm Clear mission.
+2. Wait for "Mission cleared."
+
+[PAUSE 2 SEC ON TRANSFER RESULT]
+
+==================================================
+15. RETURN TO LAUNCH
+==================================================
+
+1. Click Operate.
+2. Confirm Manual Flight is DISABLED and vehicle is armed/airborne.
+3. Click Return to launch.
+4. Click Confirm Return to launch in "Return to launch?".
+5. Wait for "Return to launch accepted" and mode Return.
+
+[SHOW GAZEBO] [PAUSE 3-5 SEC]
+
+Do not send Land until RTL is accepted. PX4 may land automatically.
+
+==================================================
+16. LAND
+==================================================
+
+If RTL already landed and disarmed: do not send Land again.
+
+If still airborne after Return is established:
+1. Focus Ground; confirm Manual Flight is DISABLED.
+2. Click Land -> Confirm Land.
+3. Wait for "Land accepted", descending altitude, then "Vehicle disarmed".
+
+Never click Disarm while airborne.
+
+==================================================
+17. FINAL STATE
+==================================================
+
+Confirm:
+* Vehicle disarmed. If landed but still armed, click Disarm -> Confirm Disarm.
+* Altitude is near ground level; speed is 0.0 m/s.
+* Manual Flight is DISABLED.
+* Latest command is accepted; Ground remains CONNECTED.
+
+[SHOW POLARIS GROUND FINAL STATE]
+[SHOW GAZEBO VEHICLE ON GROUND] [PAUSE 3 SEC]
+
+==================================================
+18. SHUTDOWN
+==================================================
+
+1. Confirm landed and disarmed.
+2. Quit Polaris Ground with Command-Q.
+3. In the PX4 Terminal press Ctrl+C; wait for cleanup.
+
+If that Terminal was closed or cleanup failed:
+
+cd ~/Documents/Polaris/PX4-Autopilot
+./scripts/stop_polaris_sim.sh
+
+Never use pkill, killall, or broad process matching.
+
+==================================================
+DEMO RECOVERY
+==================================================
+
+GROUND DOES NOT CONNECT
+* Quit Ground; close QGroundControl/MAVSDK/other flight apps using UDP 14540.
+* Run the canonical stop script; restart PX4/Gazebo; reopen the installed app.
+* Optional check: lsof -nP -iUDP:14540 -iUDP:14580
+
+PX4 DOES NOT ARM
+* Do not spam Arm. Read the result and PX4 Terminal status.
+* Wait for CONNECTED, SYS-1, valid position, and stable telemetry; retry once.
+
+OFFBOARD FAILS / MANUAL FLIGHT STAYS TRANSITIONING
+* Press Escape; if available click Disable Keyboard Control.
+* Wait for DISABLED / Neutral setpoint. Retry once only after stable telemetry.
+
+UNEXPECTED MOVEMENT
+* Release all keys; press Escape; confirm DISABLED and 0.0 m/s.
+* Click Land once, confirm, and wait for disarm.
+
+UNSTABLE SIMULATOR
+* If Ground responds: Escape, Land, wait for disarm, then quit Ground.
+* Run only:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+* Restart from PRE-DEMO SETUP.
