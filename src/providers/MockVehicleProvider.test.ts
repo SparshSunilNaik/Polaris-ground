@@ -60,4 +60,26 @@ describe('MockVehicleProvider', () => {
       failureReason: undefined,
     })
   })
+
+  it('runs deterministic manual-control lifecycle and returns movement to neutral', async () => {
+    vi.useFakeTimers()
+    const provider = new MockVehicleProvider()
+    await provider.connect()
+    await provider.enableManualControl()
+    expect(provider.getSnapshot().manualControl.status).toBe('prestreaming')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(provider.getSnapshot().manualControl.status).toBe('enabled_neutral')
+    const initial = provider.getSnapshot().telemetry.position
+    provider.updateManualControl({ forward: 1, right: -1, up: 1, yawRight: 1 })
+    vi.advanceTimersByTime(100)
+    expect(provider.getSnapshot().manualControl.status).toBe('active')
+    expect(provider.getSnapshot().telemetry.position).not.toEqual(initial)
+    provider.updateManualControl({ forward: 0, right: 0, up: 0, yawRight: 0 })
+    expect(provider.getSnapshot().manualControl.status).toBe('enabled_neutral')
+    provider.disableManualControl()
+    expect(provider.getSnapshot().manualControl).toMatchObject({
+      status: 'disabled',
+      input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+    })
+  })
 })

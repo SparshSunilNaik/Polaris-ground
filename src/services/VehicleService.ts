@@ -1,5 +1,6 @@
 import type {
   GroundStationSnapshot,
+  ManualControlInput,
   MissionOperationReceipt,
   MissionPlan,
   MissionValidationResult,
@@ -28,6 +29,15 @@ export class VehicleService {
   }
   sendCommand(action: VehicleAction): Promise<VehicleCommand> {
     return this.provider.sendCommand(action)
+  }
+  enableManualControl(): Promise<void> {
+    return this.provider.enableManualControl()
+  }
+  updateManualControl(input: ManualControlInput): void {
+    this.provider.updateManualControl(input)
+  }
+  disableManualControl(reason?: string): void {
+    this.provider.disableManualControl(reason)
   }
   downloadMission(): Promise<MissionOperationReceipt> {
     return this.provider.downloadMission()

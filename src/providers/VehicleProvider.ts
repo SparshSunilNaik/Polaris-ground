@@ -1,5 +1,6 @@
 import type {
   GroundStationSnapshot,
+  ManualControlInput,
   MissionOperationReceipt,
   MissionPlan,
   MissionValidationResult,
@@ -13,6 +14,9 @@ export interface VehicleProvider {
   getSnapshot(): GroundStationSnapshot
   subscribe(listener: (snapshot: GroundStationSnapshot) => void): () => void
   sendCommand(action: VehicleAction): Promise<VehicleCommand>
+  enableManualControl(): Promise<void>
+  updateManualControl(input: ManualControlInput): void
+  disableManualControl(reason?: string): void
   downloadMission(): Promise<MissionOperationReceipt>
   uploadMission(plan: MissionPlan): Promise<MissionOperationReceipt>
   clearMission(): Promise<MissionOperationReceipt>

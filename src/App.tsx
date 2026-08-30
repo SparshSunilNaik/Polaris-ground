@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { CameraPlaceholder } from './components/dashboard/CameraPlaceholder'
 import { MissionSummary } from './components/dashboard/MissionSummary'
 import { MissionWorkspace } from './components/dashboard/MissionWorkspace'
+import { ManualFlight } from './components/dashboard/ManualFlight'
 import { TimelineCard } from './components/dashboard/TimelineCard'
 import { VehicleActions } from './components/dashboard/VehicleActions'
 import { VehicleStatusCard } from './components/dashboard/VehicleStatusCard'
@@ -40,6 +41,8 @@ export default function App() {
   const sendCommand = (action: VehicleAction) => {
     void serviceRef.current?.sendCommand(action)
   }
+  const updateManualControl = (input: import('./domain/models').ManualControlInput) =>
+    serviceRef.current?.updateManualControl(input)
   const validateMission = (plan: import('./domain/models').MissionPlan) =>
     serviceRef.current?.validateMission(plan) ?? {
       valid: false,
@@ -105,6 +108,12 @@ export default function App() {
               </section>
               <section className="dashboard-grid dashboard-actions">
                 <VehicleActions snapshot={snapshot} onConfirm={sendCommand} />
+                <ManualFlight
+                  snapshot={snapshot}
+                  onEnable={() => void serviceRef.current?.enableManualControl()}
+                  onDisable={(reason) => serviceRef.current?.disableManualControl(reason)}
+                  onInput={updateManualControl}
+                />
               </section>
             </>
           )}

@@ -1,7 +1,9 @@
 import { completeMissionTransfer, createMissionTransfer } from '../domain/missionTransfer'
+import { isManualControlInputActive, neutralManualControlInput } from '../domain/manualControl'
 import { validateMissionPlan } from '../domain/missionValidation'
 import type {
   GroundStationSnapshot,
+  ManualControlInput,
   MissionOperationReceipt,
   MissionPlan,
   MissionTransferType,
@@ -66,6 +68,11 @@ const initialSnapshot = (): GroundStationSnapshot => ({
   safety: 'safe',
   avoidanceStatus: 'Standby',
   commands: [],
+  manualControl: {
+    status: 'disabled',
+    input: neutralManualControlInput(),
+    message: 'Keyboard control is disabled.',
+  },
   timeline: [
     {
       id: 'start',
@@ -84,6 +91,8 @@ export class MockVehicleProvider implements VehicleProvider {
   private tick = 0
   private commandSequence = 0
   private missionSequence = 0
+  private manualControlTimer: ReturnType<typeof setInterval> | undefined
+  private manualControlPrestreamFrames = 0
 
   async connect(): Promise<void> {
     this.update({ connection: 'connecting' })
@@ -92,6 +101,7 @@ export class MockVehicleProvider implements VehicleProvider {
     this.timer ??= setInterval(() => this.advance(), 1000)
   }
   async disconnect(): Promise<void> {
+    this.disableManualControl('Vehicle disconnected.')
     this.stopTimer()
     this.update({ connection: 'disconnected' })
   }
@@ -117,6 +127,39 @@ export class MockVehicleProvider implements VehicleProvider {
       300,
     )
     return command
+  }
+  async enableManualControl(): Promise<void> {
+    if (this.snapshot.connection !== 'connected' || !this.snapshot.vehicle.armed) {
+      this.setManualControl('unavailable', 'Keyboard control requires a connected, armed vehicle.')
+      return
+    }
+    this.manualControlPrestreamFrames = 0
+    this.setManualControl('prestreaming', 'Preparing neutral control setpoints before Offboard mode.')
+    this.manualControlTimer ??= setInterval(() => this.advanceManualControl(), 100)
+  }
+  updateManualControl(input: ManualControlInput): void {
+    if (
+      !['prestreaming', 'entering_offboard', 'enabled_neutral', 'active'].includes(
+        this.snapshot.manualControl.status,
+      )
+    )
+      return
+    const status = this.snapshot.manualControl.status
+    this.setManualControl(
+      status === 'prestreaming' || status === 'entering_offboard'
+        ? status
+        : isManualControlInputActive(input)
+          ? 'active'
+          : 'enabled_neutral',
+      isManualControlInputActive(input)
+        ? 'Keyboard control is active.'
+        : 'Keyboard control is transmitting neutral setpoints.',
+      input,
+    )
+  }
+  disableManualControl(reason = 'Keyboard control disabled.'): void {
+    this.stopManualControl()
+    this.setManualControl('disabled', reason)
   }
   async downloadMission(): Promise<MissionOperationReceipt> {
     return this.completeMissionOperation(
@@ -147,12 +190,54 @@ export class MockVehicleProvider implements VehicleProvider {
     return validateMissionPlan(plan)
   }
   dispose(): void {
+    this.disableManualControl('Keyboard control disabled because the provider is closing.')
     this.stopTimer()
     this.listeners.clear()
   }
   private stopTimer(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+  }
+  private stopManualControl(): void {
+    if (this.manualControlTimer) clearInterval(this.manualControlTimer)
+    this.manualControlTimer = undefined
+  }
+  private advanceManualControl(): void {
+    if (this.snapshot.manualControl.status === 'prestreaming') {
+      if (++this.manualControlPrestreamFrames >= 3)
+        this.setManualControl('entering_offboard', 'Waiting for PX4 to enter Offboard mode.')
+      return
+    }
+    if (this.snapshot.manualControl.status === 'entering_offboard') {
+      this.setManualControl(
+        'enabled_neutral',
+        'Keyboard control is enabled and transmitting neutral setpoints.',
+      )
+      return
+    }
+    if (this.snapshot.manualControl.status !== 'active') return
+    const input = this.snapshot.manualControl.input
+    this.snapshot = {
+      ...this.snapshot,
+      telemetry: {
+        ...this.snapshot.telemetry,
+        position: {
+          ...this.snapshot.telemetry.position,
+          latitude: this.snapshot.telemetry.position.latitude + input.forward * 0.000001,
+          longitude: this.snapshot.telemetry.position.longitude + input.right * 0.000001,
+          altitudeMeters: this.snapshot.telemetry.position.altitudeMeters + input.up * 0.03,
+        },
+      },
+    }
+    this.emit()
+  }
+  private setManualControl(
+    status: GroundStationSnapshot['manualControl']['status'],
+    message: string,
+    input = neutralManualControlInput(),
+  ): void {
+    this.snapshot = { ...this.snapshot, manualControl: { status, input, message } }
+    this.emit()
   }
   private advance(): void {
     this.tick += 1

@@ -149,6 +149,16 @@ Advanced autonomous planning remains in Polaris Core.
 
 ### v0.5.0 — Operator Workspace
 
+In progress. The Manual Flight capability is complete; map and broader workspace work remains pending.
+
+Manual Flight completion:
+
+- Transport-independent normalized keyboard input and explicit operator enablement
+- Provider-owned 10 Hz PX4 Offboard BODY_NED velocity/yaw lifecycle with neutral failsafes
+- Deterministic automated coverage for all directions, diagonals, opposing keys, release, focus safety, provider lifecycle, and mock behavior
+- Core live PX4 SITL validation of standalone connection, Arm, Takeoff, Offboard entry, `W` forward movement at approximately 0.5 m/s, Escape neutralization to 0.0 m/s, Land, and Disarm
+- Native macOS keyup observation and independent Position-fallback heartbeat confirmation remain documented live-validation limitations; broader directional behavior is validated deterministically rather than claimed as manually flown
+
 Candidate scope:
 
 - Map, telemetry, vehicle health, mission, timeline, and command-feedback panels

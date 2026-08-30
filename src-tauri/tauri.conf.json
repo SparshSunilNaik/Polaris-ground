@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Polaris Ground",
-  "version": "0.1.0",
+  "version": "0.5.0-beta.1",
   "identifier": "com.polarisground.gcs",
   "build": {
     "frontendDist": "../dist",
@@ -35,6 +35,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

@@ -15,11 +15,30 @@ const heartbeat: MavlinkMessage = {
   componentId: 1,
   payload: new Uint8Array([0, 0, 0, 0, 0, 0, 0x80]),
 }
+const offboardHeartbeat: MavlinkMessage = {
+  messageId: 0,
+  systemId: 1,
+  componentId: 1,
+  payload: new Uint8Array([0, 0, 6, 0, 0, 0, 0x80]),
+}
+const globalPosition: MavlinkMessage = (() => {
+  const payload = new Uint8Array(28)
+  const view = new DataView(payload.buffer)
+  view.setInt32(4, 473979706, true)
+  view.setInt32(8, 85461641, true)
+  return { messageId: 33, systemId: 1, componentId: 1, payload }
+})()
 const ack = (result: number): MavlinkMessage => ({
   messageId: 77,
   systemId: 1,
   componentId: 1,
   payload: new Uint8Array([144, 1, result]),
+})
+const modeAck = (result: number): MavlinkMessage => ({
+  messageId: 77,
+  systemId: 1,
+  componentId: 1,
+  payload: new Uint8Array([176, 0, result]),
 })
 const transportHarness = (provider: MavlinkVehicleProvider): { handle(message: MavlinkMessage): void } =>
   provider as unknown as { handle(message: MavlinkMessage): void }
@@ -74,6 +93,7 @@ describe('MavlinkVehicleProvider commands', () => {
     const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
     await provider.connect()
     transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
     const accepted = await provider.sendCommand('arm')
     transportHarness(provider).handle(ack(0))
     expect(provider.getSnapshot().commands[0]).toMatchObject({ id: accepted.id, status: 'accepted' })
@@ -118,6 +138,7 @@ describe('MavlinkVehicleProvider commands', () => {
     const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
     await provider.connect()
     transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
     mocks.invoke.mockClear()
     await expect(provider.uploadMission(missionPlan)).resolves.toMatchObject({
       type: 'upload',
@@ -304,5 +325,36 @@ describe('MavlinkVehicleProvider commands', () => {
       vehiclePlan: { items: [] },
       mostRecentTransfer: { status: 'succeeded', type: 'clear' },
     })
+  })
+
+  it('prestreams neutral BODY_NED setpoints before Offboard, then disables with neutral input', async () => {
+    vi.useFakeTimers()
+    const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await provider.connect()
+    transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
+    mocks.invoke.mockClear()
+    await provider.enableManualControl()
+    expect(provider.getSnapshot().manualControl.status).toBe('prestreaming')
+    provider.updateManualControl({ forward: 1, right: -1, up: 1, yawRight: 1 })
+    await vi.advanceTimersByTimeAsync(200)
+    expect(provider.getSnapshot().manualControl.status).toBe('entering_offboard')
+    expect(sentMessageIds()).toEqual([84, 84, 84, 76])
+    const prestreamFrames = mocks.invoke.mock.calls
+      .filter(([, args]) => args.frame[7] === 84)
+      .map(([, args]) => new DataView(new Uint8Array(args.frame).buffer))
+    expect(prestreamFrames.every((frame) => frame.getFloat32(26, true) === 0)).toBe(true)
+    transportHarness(provider).handle(modeAck(5))
+    expect(provider.getSnapshot().manualControl.status).toBe('entering_offboard')
+    transportHarness(provider).handle(offboardHeartbeat)
+    provider.updateManualControl({ forward: 1, right: -1, up: 1, yawRight: 1 })
+    expect(provider.getSnapshot().manualControl.status).toBe('active')
+    provider.disableManualControl('Focus lost.')
+    expect(provider.getSnapshot().manualControl).toMatchObject({
+      status: 'disabled',
+      input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+    })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(provider.getSnapshot().manualControl.status).toBe('disabled')
   })
 })

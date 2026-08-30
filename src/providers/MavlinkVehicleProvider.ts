@@ -1,7 +1,9 @@
 import { completeMissionTransfer, createMissionTransfer } from '../domain/missionTransfer'
 import { MAXIMUM_WAYPOINT_COUNT, validateMissionPlan } from '../domain/missionValidation'
+import { isManualControlInputActive, neutralManualControlInput } from '../domain/manualControl'
 import type {
   GroundStationSnapshot,
+  ManualControlInput,
   MissionFailureReason,
   MissionOperationReceipt,
   MissionItem,
@@ -15,6 +17,13 @@ import type {
 } from '../domain/models'
 import { MavlinkConnection } from '../transport/mavlink/connection/MavlinkConnection'
 import { encodeCommandLong, mavlinkCommandFor } from '../transport/mavlink/commands/MavlinkCommand'
+import {
+  encodeBodyVelocitySetpoint,
+  encodeSetFlightMode,
+  MAV_CMD_DO_SET_MODE,
+  PX4_CUSTOM_MAIN_MODE_OFFBOARD,
+  PX4_CUSTOM_MAIN_MODE_POSCTL,
+} from '../transport/mavlink/manual/MavlinkManualControl'
 import { translateMavlinkMessage } from '../transport/mavlink/translator/MavlinkTranslator'
 import {
   decodeMissionAck,
@@ -39,6 +48,10 @@ import {
 import type { VehicleProvider } from './VehicleProvider'
 
 export const MISSION_TRANSFER_TIMEOUT_MS = 5000
+export const MANUAL_CONTROL_RATE_HZ = 10
+export const MANUAL_CONTROL_PRESTREAM_FRAMES = 3
+export const MANUAL_CONTROL_OFFBOARD_TIMEOUT_MS = 2000
+export const MANUAL_CONTROL_NEUTRAL_FRAMES = 3
 const MAXIMUM_MISSION_ITEM_COUNT = MAXIMUM_WAYPOINT_COUNT + 2
 type MissionStage = 'waiting_for_count' | 'waiting_for_request' | 'waiting_for_item' | 'waiting_for_ack'
 type ActiveMissionTransfer = {
@@ -80,6 +93,11 @@ const initial = (): GroundStationSnapshot => ({
   safety: 'unknown',
   avoidanceStatus: 'Unavailable',
   commands: [],
+  manualControl: {
+    status: 'disabled',
+    input: neutralManualControlInput(),
+    message: 'Keyboard control is disabled.',
+  },
   timeline: [],
 })
 
@@ -95,6 +113,10 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private missionSequence = 0
   private activeMissionTransfer: ActiveMissionTransfer | undefined
   private missionTimeout: ReturnType<typeof setTimeout> | undefined
+  private manualControlTimer: ReturnType<typeof setInterval> | undefined
+  private manualControlEntryTimeout: ReturnType<typeof setTimeout> | undefined
+  private manualControlPrestreamFrames = 0
+  private manualControlNeutralFrames = 0
   private readonly remoteAddress: string
   private readonly commandTimeoutMs: number
   constructor(
@@ -131,6 +153,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     }
   }
   async disconnect(): Promise<void> {
+    this.disableManualControl('Vehicle disconnected.')
     this.failActiveMission('transport_error', 'Mission transfer interrupted by disconnect.')
     this.stopHeartbeatMonitor()
     await this.connection.disconnect()
@@ -182,6 +205,44 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       this.completeCommand(command.id, 'rejected', 'Command could not be sent to the vehicle.')
     }
     return command
+  }
+  async enableManualControl(): Promise<void> {
+    const { componentId, armed } = this.snapshot.vehicle
+    const { latitude, longitude } = this.snapshot.telemetry.position
+    if (this.snapshot.connection !== 'connected' || componentId === undefined || !armed) {
+      this.setManualControl('unavailable', 'Keyboard control requires a connected, armed vehicle.')
+      return
+    }
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || (latitude === 0 && longitude === 0)) {
+      this.setManualControl('unavailable', 'Keyboard control requires a valid vehicle position.')
+      return
+    }
+    if (!['disabled', 'unavailable', 'failed'].includes(this.snapshot.manualControl.status)) return
+    this.manualControlPrestreamFrames = 0
+    this.manualControlNeutralFrames = 0
+    this.setManualControl('prestreaming', 'Preparing neutral control setpoints before Offboard mode.')
+    this.startManualControlLoop()
+    this.manualControlTick()
+  }
+  updateManualControl(input: ManualControlInput): void {
+    const status = this.snapshot.manualControl.status
+    if (!['prestreaming', 'entering_offboard', 'enabled_neutral', 'active'].includes(status)) return
+    const nextStatus =
+      status === 'enabled_neutral' || status === 'active'
+        ? isManualControlInputActive(input)
+          ? 'active'
+          : 'enabled_neutral'
+        : status
+    this.setManualControl(nextStatus, this.snapshot.manualControl.message, input)
+  }
+  disableManualControl(reason = 'Keyboard control disabled.'): void {
+    this.clearManualControlEntryTimeout()
+    const wasTransmitting = this.manualControlTimer !== undefined
+    this.manualControlPrestreamFrames = 0
+    this.setManualControl('disabled', reason)
+    if (!wasTransmitting) return
+    this.manualControlNeutralFrames = MANUAL_CONTROL_NEUTRAL_FRAMES
+    this.sendManualFlightMode(PX4_CUSTOM_MAIN_MODE_POSCTL)
   }
   async downloadMission(): Promise<MissionOperationReceipt> {
     if (this.activeMissionTransfer)
@@ -250,6 +311,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     return validateMissionPlan(plan)
   }
   dispose(): void {
+    this.disableManualControl('Keyboard control disabled because the provider is closing.')
     this.failActiveMission('transport_error', 'Mission transfer interrupted by provider disposal.')
     this.stopHeartbeatMonitor()
     this.connection.dispose()
@@ -290,6 +352,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       },
       timeline,
     })
+    if (update.vehicle) this.syncManualControlFlightMode(update.vehicle.flightMode)
   }
   private event(severity: TimelineEvent['severity'], label: string, message: string): TimelineEvent {
     return { id: `${label}-${++this.timestamp}`, timestamp: this.timestamp, severity, label, message }
@@ -308,6 +371,13 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     )
     const mavlinkCommand = payload.getUint16(0, true)
     const result = message.payload[2]
+    if (
+      mavlinkCommand === MAV_CMD_DO_SET_MODE &&
+      this.snapshot.manualControl.status === 'entering_offboard'
+    ) {
+      if (result !== 0 && result !== 5) this.failManualControl('PX4 rejected the Offboard mode request.')
+      return
+    }
     if (result === 5) return
     const command = this.snapshot.commands.find(
       (entry) => entry.status === 'pending' && mavlinkCommandFor(entry.action) === mavlinkCommand,
@@ -367,6 +437,105 @@ export class MavlinkVehicleProvider implements VehicleProvider {
         ...this.snapshot.timeline,
       ].slice(0, 30),
     })
+  }
+  private startManualControlLoop(): void {
+    if (this.manualControlTimer) return
+    this.manualControlTimer = setInterval(() => this.manualControlTick(), 1000 / MANUAL_CONTROL_RATE_HZ)
+  }
+  private stopManualControlLoop(): void {
+    if (this.manualControlTimer) clearInterval(this.manualControlTimer)
+    this.manualControlTimer = undefined
+  }
+  private manualControlTick(): void {
+    const status = this.snapshot.manualControl.status
+    if (status === 'disabled' || status === 'failed') {
+      if (this.manualControlNeutralFrames <= 0) return this.stopManualControlLoop()
+      this.manualControlNeutralFrames -= 1
+    } else if (!['prestreaming', 'entering_offboard', 'enabled_neutral', 'active'].includes(status)) {
+      return this.stopManualControlLoop()
+    }
+    const { componentId } = this.snapshot.vehicle
+    const targetSystem = Number(this.snapshot.vehicle.id.replace('SYS-', ''))
+    if (
+      componentId === undefined ||
+      !Number.isInteger(targetSystem) ||
+      this.snapshot.connection !== 'connected'
+    ) {
+      this.failManualControl('Keyboard control lost vehicle connectivity.')
+      return
+    }
+    const input =
+      status === 'enabled_neutral' || status === 'active'
+        ? this.snapshot.manualControl.input
+        : neutralManualControlInput()
+    void this.connection
+      .send(
+        encodeBodyVelocitySetpoint(input, targetSystem, componentId, this.frameSequence++),
+        this.remoteAddress,
+      )
+      .catch(() => this.failManualControl('Keyboard control setpoint could not be sent.', false))
+    if (status === 'prestreaming' && ++this.manualControlPrestreamFrames >= MANUAL_CONTROL_PRESTREAM_FRAMES) {
+      this.setManualControl('entering_offboard', 'Waiting for PX4 to enter Offboard mode.')
+      this.sendManualFlightMode(PX4_CUSTOM_MAIN_MODE_OFFBOARD)
+      this.clearManualControlEntryTimeout()
+      this.manualControlEntryTimeout = setTimeout(
+        () => this.failManualControl('PX4 did not confirm Offboard mode in time.'),
+        MANUAL_CONTROL_OFFBOARD_TIMEOUT_MS,
+      )
+    }
+  }
+  private sendManualFlightMode(customMainMode: number): void {
+    const { componentId } = this.snapshot.vehicle
+    const targetSystem = Number(this.snapshot.vehicle.id.replace('SYS-', ''))
+    if (
+      componentId === undefined ||
+      !Number.isInteger(targetSystem) ||
+      this.snapshot.connection !== 'connected'
+    )
+      return
+    void this.connection
+      .send(
+        encodeSetFlightMode(customMainMode, targetSystem, componentId, this.frameSequence++),
+        this.remoteAddress,
+      )
+      .catch(() => this.failManualControl('Keyboard control mode request could not be sent.', false))
+  }
+  private syncManualControlFlightMode(flightMode: string): void {
+    const status = this.snapshot.manualControl.status
+    if (status === 'entering_offboard' && flightMode === 'Offboard') {
+      this.clearManualControlEntryTimeout()
+      this.setManualControl(
+        isManualControlInputActive(this.snapshot.manualControl.input) ? 'active' : 'enabled_neutral',
+        'Keyboard control is enabled and transmitting neutral setpoints.',
+      )
+      return
+    }
+    if ((status === 'enabled_neutral' || status === 'active') && flightMode !== 'Offboard')
+      this.failManualControl('Keyboard control disabled because PX4 left Offboard mode.')
+  }
+  private setManualControl(
+    status: GroundStationSnapshot['manualControl']['status'],
+    message: string,
+    input?: ManualControlInput,
+  ): void {
+    const resolvedInput =
+      input ??
+      (['disabled', 'unavailable', 'failed'].includes(status)
+        ? neutralManualControlInput()
+        : this.snapshot.manualControl.input)
+    this.set({ ...this.snapshot, manualControl: { status, input: resolvedInput, message } })
+  }
+  private failManualControl(message: string, sendNeutral = true): void {
+    this.clearManualControlEntryTimeout()
+    this.manualControlNeutralFrames =
+      sendNeutral && this.manualControlTimer ? MANUAL_CONTROL_NEUTRAL_FRAMES : 0
+    this.setManualControl('failed', message)
+    if (sendNeutral) this.sendManualFlightMode(PX4_CUSTOM_MAIN_MODE_POSCTL)
+    if (this.manualControlNeutralFrames === 0) this.stopManualControlLoop()
+  }
+  private clearManualControlEntryTimeout(): void {
+    if (this.manualControlEntryTimeout) clearTimeout(this.manualControlEntryTimeout)
+    this.manualControlEntryTimeout = undefined
   }
   private startMissionTransfer(
     type: MissionTransferType,
