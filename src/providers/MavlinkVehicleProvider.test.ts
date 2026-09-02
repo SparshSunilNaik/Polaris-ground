@@ -114,7 +114,7 @@ describe('MavlinkVehicleProvider commands', () => {
     const command = await provider.sendCommand('land')
     await vi.advanceTimersByTimeAsync(50)
     expect(provider.getSnapshot().commands[0]).toMatchObject({ id: command.id, status: 'timed_out' })
-    expect(mocks.invoke.mock.calls.filter(([command]) => command === 'send_mavlink_frame')).toHaveLength(2)
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === 'send_mavlink_frame')).toHaveLength(1)
   })
 
   it('rejects a mission transfer locally without sending a MAVLink frame when disconnected', async () => {

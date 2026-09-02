@@ -42,7 +42,6 @@ PX4 SITL or compatible vehicle software is needed to exercise live telemetry and
 ## Known Limitations
 
 - This internal build is not Developer ID signed or Apple notarized, so Gatekeeper may require the per-application opening step above.
-- The MAVLink connection may become fragile or disconnect when Polaris Ground loses application focus or the user switches applications. TODO for a future v0.5.x improvement.
 - Native macOS keyup was not conclusively observed through the Accessibility automation harness; deterministic automated tests cover key release.
 - Position-mode fallback is requested after Escape, but an independent subsequent PX4 heartbeat confirming Position mode was not captured during milestone validation.
 - Hardware use requires separate staged validation, appropriate PX4 failsafe configuration, and operator procedures.
