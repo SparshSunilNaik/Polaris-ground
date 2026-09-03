@@ -42,6 +42,8 @@ const modeAck = (result: number): MavlinkMessage => ({
 })
 const transportHarness = (provider: MavlinkVehicleProvider): { handle(message: MavlinkMessage): void } =>
   provider as unknown as { handle(message: MavlinkMessage): void }
+const linkHarness = (provider: MavlinkVehicleProvider) =>
+  provider as unknown as { handleVehicleLink(event: { state: 'lost' | 'restored'; systemId: number }): void }
 const missionPlan: MissionPlan = {
   id: 'test-mission',
   name: 'Test Mission',
@@ -356,5 +358,60 @@ describe('MavlinkVehicleProvider commands', () => {
     })
     await vi.advanceTimersByTimeAsync(300)
     expect(provider.getSnapshot().manualControl.status).toBe('disabled')
+  })
+
+  it('keeps telemetry stale until the selected vehicle heartbeat restores the link', async () => {
+    const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await provider.connect()
+    transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
+
+    linkHarness(provider).handleVehicleLink({ state: 'lost', systemId: 1 })
+    expect(provider.getSnapshot()).toMatchObject({
+      connection: 'degraded',
+      telemetry: { link: { qualityPercent: 0, packetLossPercent: 100 } },
+    })
+    transportHarness(provider).handle(globalPosition)
+    expect(provider.getSnapshot().connection).toBe('degraded')
+    linkHarness(provider).handleVehicleLink({ state: 'restored', systemId: 2 })
+    expect(provider.getSnapshot().connection).toBe('degraded')
+    linkHarness(provider).handleVehicleLink({ state: 'restored', systemId: 1 })
+    expect(provider.getSnapshot()).toMatchObject({
+      connection: 'connected',
+      telemetry: { link: { qualityPercent: 100 } },
+    })
+  })
+
+  it('atomically interrupts pending commands, missions, and manual control on link loss', async () => {
+    vi.useFakeTimers()
+    const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await provider.connect()
+    transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
+    await provider.sendCommand('arm')
+    await provider.downloadMission()
+    await provider.enableManualControl()
+
+    linkHarness(provider).handleVehicleLink({ state: 'lost', systemId: 1 })
+
+    expect(provider.getSnapshot()).toMatchObject({
+      connection: 'degraded',
+      manualControl: {
+        status: 'failed',
+        input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+      },
+      mission: {
+        activeTransfer: undefined,
+        mostRecentTransfer: { status: 'failed', failureReason: 'transport_error' },
+      },
+    })
+    expect(provider.getSnapshot().commands[0]).toMatchObject({
+      action: 'arm',
+      status: 'rejected',
+      message: 'Vehicle link was lost before the command completed.',
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(provider.getSnapshot().commands[0]?.status).toBe('rejected')
+    provider.dispose()
   })
 })

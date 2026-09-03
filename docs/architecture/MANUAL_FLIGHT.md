@@ -88,5 +88,6 @@ Window blur, hidden-document state, leaving the operator workspace, disconnect, 
 
 - A standalone native macOS keyup event was not conclusively observed through the Accessibility automation harness. Key-release behavior is covered by automated tests.
 - Position-mode fallback was requested after Escape, but a subsequent PX4 heartbeat independently confirming Position mode was not captured.
+- Switching away from or backgrounding Polaris Ground during active Manual Flight may degrade control or the vehicle link, causing PX4 failsafe or landing behavior. Operators must keep Polaris Ground foregrounded during Manual Flight.
 
 These are validation limitations, not observed failures, and do not block this milestone. Manual Flight must not be used on hardware until staged hardware validation, effective PX4 failsafe parameters, and operator procedures are established.

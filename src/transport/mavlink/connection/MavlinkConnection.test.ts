@@ -26,7 +26,7 @@ describe('MavlinkConnection lifecycle', () => {
     await connection.connect()
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
 
-    expect(mocks.listen).toHaveBeenCalledTimes(1)
+    expect(mocks.listen).toHaveBeenCalledTimes(3)
     const starts = mocks.invoke.mock.calls.filter(([command]) => command === 'start_mavlink_listener')
     expect(starts).toHaveLength(1)
     expect(starts[0]?.[1]).toMatchObject({
@@ -44,7 +44,7 @@ describe('MavlinkConnection lifecycle', () => {
     const stops = mocks.invoke.mock.calls.filter(([command]) => command === 'stop_mavlink_listener')
     expect(stops).toHaveLength(1)
     expect(stops[0]?.[1].connectionId).toBe(starts[0]?.[1].connectionId)
-    expect(mocks.unlisten).toHaveBeenCalledTimes(1)
+    expect(mocks.unlisten).toHaveBeenCalledTimes(3)
   })
 
   it('removes the frontend subscription when native startup fails', async () => {
@@ -53,7 +53,7 @@ describe('MavlinkConnection lifecycle', () => {
 
     await expect(connection.connect()).rejects.toThrow('bind failed')
 
-    expect(mocks.unlisten).toHaveBeenCalledTimes(1)
+    expect(mocks.unlisten).toHaveBeenCalledTimes(3)
     await connection.disconnect()
     expect(mocks.invoke.mock.calls.filter(([command]) => command === 'stop_mavlink_listener')).toHaveLength(0)
   })

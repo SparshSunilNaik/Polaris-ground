@@ -52,6 +52,7 @@ export const MANUAL_CONTROL_RATE_HZ = 10
 export const MANUAL_CONTROL_PRESTREAM_FRAMES = 3
 export const MANUAL_CONTROL_OFFBOARD_TIMEOUT_MS = 2000
 export const MANUAL_CONTROL_NEUTRAL_FRAMES = 3
+const MAX_TRANSPORT_RECONNECT_ATTEMPTS = 3
 const MAXIMUM_MISSION_ITEM_COUNT = MAXIMUM_WAYPOINT_COUNT + 2
 type MissionStage = 'waiting_for_count' | 'waiting_for_request' | 'waiting_for_item' | 'waiting_for_ack'
 type ActiveMissionTransfer = {
@@ -106,8 +107,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private listeners = new Set<(value: GroundStationSnapshot) => void>()
   private connection: MavlinkConnection
   private timestamp = 0
-  private heartbeatTimer: ReturnType<typeof setInterval> | undefined
-  private lastHeartbeat = 0
+  private vehicleSystemId: number | undefined
   private commandSequence = 0
   private frameSequence = 0
   private missionSequence = 0
@@ -117,6 +117,8 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private manualControlEntryTimeout: ReturnType<typeof setTimeout> | undefined
   private manualControlPrestreamFrames = 0
   private manualControlNeutralFrames = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  private reconnectAttempts = 0
   private readonly remoteAddress: string
   private readonly commandTimeoutMs: number
   constructor(
@@ -124,7 +126,13 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     remoteAddress = import.meta.env.VITE_MAVLINK_REMOTE_ADDRESS ?? '127.0.0.1:14540',
     commandTimeoutMs = 5000,
   ) {
-    this.connection = new MavlinkConnection(endpoint, remoteAddress, (message) => this.handle(message))
+    this.connection = new MavlinkConnection(
+      endpoint,
+      remoteAddress,
+      (message) => this.handle(message),
+      (event) => this.handleVehicleLink(event),
+      (event) => this.handleTransportFailure(event.message),
+    )
     this.remoteAddress = remoteAddress
     this.commandTimeoutMs = commandTimeoutMs
   }
@@ -132,10 +140,9 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     this.set({ ...this.snapshot, connection: 'connecting' })
     try {
       await this.connection.connect()
-      this.startHeartbeatMonitor()
       this.set({
         ...this.snapshot,
-        connection: 'connected',
+        connection: 'connecting',
         timeline: [
           this.event('info', 'Listening for vehicle', 'Waiting for a MAVLink heartbeat.'),
           ...this.snapshot.timeline,
@@ -153,9 +160,9 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     }
   }
   async disconnect(): Promise<void> {
+    this.clearTransportReconnect()
     this.disableManualControl('Vehicle disconnected.')
     this.failActiveMission('transport_error', 'Mission transfer interrupted by disconnect.')
-    this.stopHeartbeatMonitor()
     await this.connection.disconnect()
     this.set({
       ...this.snapshot,
@@ -311,27 +318,22 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     return validateMissionPlan(plan)
   }
   dispose(): void {
+    this.clearTransportReconnect()
     this.disableManualControl('Keyboard control disabled because the provider is closing.')
     this.failActiveMission('transport_error', 'Mission transfer interrupted by provider disposal.')
-    this.stopHeartbeatMonitor()
     this.connection.dispose()
     this.listeners.clear()
   }
   private handle(message: Parameters<typeof translateMavlinkMessage>[0]): void {
+    if (this.vehicleSystemId !== undefined && message.systemId !== this.vehicleSystemId) return
     if (message.messageId === 77) this.handleCommandAck(message)
     if (this.handleMissionMessage(message)) return
+    let initialHeartbeat = false
     if (message.messageId === 0) {
-      const restored = this.snapshot.connection === 'degraded'
-      this.lastHeartbeat = Date.now()
-      if (restored)
-        this.set({
-          ...this.snapshot,
-          connection: 'connected',
-          timeline: [
-            this.event('info', 'Heartbeat restored', 'Vehicle telemetry resumed.'),
-            ...this.snapshot.timeline,
-          ],
-        })
+      if (this.vehicleSystemId === undefined) {
+        this.vehicleSystemId = message.systemId
+        initialHeartbeat = true
+      }
     }
     const update = translateMavlinkMessage(message, ++this.timestamp)
     if (!update) return
@@ -340,7 +342,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       : this.snapshot.timeline
     this.set({
       ...this.snapshot,
-      connection: 'connected',
+      connection: this.snapshot.connection,
       vehicle: update.vehicle ?? this.snapshot.vehicle,
       telemetry: {
         ...this.snapshot.telemetry,
@@ -348,10 +350,14 @@ export class MavlinkVehicleProvider implements VehicleProvider {
         position: update.position ?? this.snapshot.telemetry.position,
         attitude: update.attitude ?? this.snapshot.telemetry.attitude,
         groundSpeedMps: update.groundSpeedMps ?? this.snapshot.telemetry.groundSpeedMps,
-        link: { ...this.snapshot.telemetry.link, qualityPercent: 100 },
+        link:
+          this.snapshot.connection === 'connected'
+            ? { ...this.snapshot.telemetry.link, qualityPercent: 100 }
+            : this.snapshot.telemetry.link,
       },
       timeline,
     })
+    if (initialHeartbeat) this.establishVehicleLink()
     if (update.vehicle) this.syncManualControlFlightMode(update.vehicle.flightMode)
   }
   private event(severity: TimelineEvent['severity'], label: string, message: string): TimelineEvent {
@@ -860,24 +866,156 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       ].slice(0, 30),
     })
   }
-  private startHeartbeatMonitor(): void {
-    this.stopHeartbeatMonitor()
-    this.lastHeartbeat = Date.now()
-    this.heartbeatTimer = setInterval(() => {
-      if (Date.now() - this.lastHeartbeat <= 3000 || this.snapshot.connection !== 'connected') return
+  private handleVehicleLink(event: { state: 'lost' | 'restored'; systemId: number }): void {
+    if (this.vehicleSystemId !== event.systemId) return
+    if (event.state === 'restored') return this.restoreVehicleLink()
+    this.handleVehicleLinkLoss()
+  }
+  private restoreVehicleLink(): void {
+    if (this.snapshot.connection === 'connected') return
+    this.set({
+      ...this.snapshot,
+      connection: 'connected',
+      telemetry: {
+        ...this.snapshot.telemetry,
+        link: { ...this.snapshot.telemetry.link, qualityPercent: 100 },
+      },
+      timeline: [
+        this.event('info', 'Heartbeat restored', 'Vehicle telemetry resumed.'),
+        ...this.snapshot.timeline,
+      ].slice(0, 30),
+    })
+  }
+  private establishVehicleLink(): void {
+    if (this.snapshot.connection === 'connected') return
+    this.set({
+      ...this.snapshot,
+      connection: 'connected',
+      telemetry: {
+        ...this.snapshot.telemetry,
+        link: { ...this.snapshot.telemetry.link, qualityPercent: 100 },
+      },
+      timeline: [
+        this.event('info', 'Vehicle heartbeat received', 'Vehicle telemetry is available.'),
+        ...this.snapshot.timeline,
+      ].slice(0, 30),
+    })
+  }
+  private handleVehicleLinkLoss(): void {
+    if (this.snapshot.connection !== 'connected') return
+    this.clearManualControlEntryTimeout()
+    this.manualControlNeutralFrames = 0
+    this.stopManualControlLoop()
+    this.clearMissionTimeout()
+    const activeMission = this.activeMissionTransfer
+    this.activeMissionTransfer = undefined
+    const interruptedCommands = this.snapshot.commands.filter((command) => command.status === 'pending')
+    const commands = this.snapshot.commands.map((command) =>
+      command.status === 'pending'
+        ? {
+            ...command,
+            status: 'rejected' as const,
+            completedAt: Date.now(),
+            message: 'Vehicle link was lost before the command completed.',
+          }
+        : command,
+    )
+    const mostRecentTransfer = activeMission
+      ? completeMissionTransfer(
+          activeMission.operation,
+          'failed',
+          Date.now(),
+          'Vehicle link was lost during the mission transfer.',
+          'transport_error',
+        )
+      : this.snapshot.mission.mostRecentTransfer
+    const events: TimelineEvent[] = [
+      this.event('warning', 'Heartbeat lost', 'Vehicle telemetry has not been received for 3 seconds.'),
+      ...interruptedCommands.map((command) =>
+        this.event(
+          'warning',
+          `${actionLabel(command.action)} rejected`,
+          'Vehicle link was lost before the command completed.',
+        ),
+      ),
+      ...(activeMission
+        ? [
+            this.event(
+              'warning',
+              missionFailureLabel(activeMission.operation.type, 'transport_error'),
+              'Vehicle link was lost during the mission transfer.',
+            ),
+          ]
+        : []),
+      ...this.snapshot.timeline,
+    ].slice(0, 30)
+    this.set({
+      ...this.snapshot,
+      connection: 'degraded',
+      telemetry: {
+        ...this.snapshot.telemetry,
+        link: { qualityPercent: 0, latencyMs: 0, packetLossPercent: 100 },
+      },
+      commands,
+      manualControl: {
+        status: 'failed',
+        input: neutralManualControlInput(),
+        message: 'Keyboard control disabled because the vehicle link was lost.',
+      },
+      mission: {
+        ...this.snapshot.mission,
+        activeTransfer: undefined,
+        mostRecentTransfer,
+      },
+      timeline: events,
+    })
+  }
+  private handleTransportFailure(message: string): void {
+    if (this.reconnectTimer) return
+    if (this.snapshot.connection !== 'reconnecting') {
+      this.handleVehicleLinkLoss()
       this.set({
         ...this.snapshot,
-        connection: 'degraded',
+        connection: 'reconnecting',
+        telemetry: {
+          ...this.snapshot.telemetry,
+          link: { qualityPercent: 0, latencyMs: 0, packetLossPercent: 100 },
+        },
         timeline: [
-          this.event('warning', 'Heartbeat lost', 'Vehicle telemetry has not been received for 3 seconds.'),
+          this.event('warning', 'Transport reconnecting', `MAVLink transport failed: ${message}`),
           ...this.snapshot.timeline,
-        ],
+        ].slice(0, 30),
       })
-    }, 500)
+    }
+    this.scheduleTransportReconnect()
   }
-  private stopHeartbeatMonitor(): void {
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
-    this.heartbeatTimer = undefined
+  private scheduleTransportReconnect(): void {
+    if (this.reconnectAttempts >= MAX_TRANSPORT_RECONNECT_ATTEMPTS) {
+      this.set({
+        ...this.snapshot,
+        connection: 'error',
+        timeline: [
+          this.event('warning', 'Transport unavailable', 'MAVLink transport could not be restored.'),
+          ...this.snapshot.timeline,
+        ].slice(0, 30),
+      })
+      return
+    }
+    const delay = 500 * 2 ** this.reconnectAttempts++
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      void this.connection
+        .reconnect()
+        .then(() => {
+          this.reconnectAttempts = 0
+        })
+        .catch((error) => this.handleTransportFailure(String(error)))
+    }, delay)
+  }
+  private clearTransportReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.reconnectAttempts = 0
   }
 }
 
