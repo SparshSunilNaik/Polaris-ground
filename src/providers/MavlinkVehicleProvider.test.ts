@@ -91,6 +91,21 @@ describe('MavlinkVehicleProvider commands', () => {
   beforeEach(() => mocks.invoke.mockClear())
   afterEach(() => vi.useRealTimers())
 
+  it('records accepted MAVLink message and heartbeat freshness for diagnostics', async () => {
+    const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await provider.connect()
+    transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
+
+    expect(provider.getSnapshot().diagnostics).toMatchObject({
+      listenerState: 'listening',
+      receivedMessageCount: 2,
+      lastMessageAt: expect.any(Number),
+      lastHeartbeatAt: expect.any(Number),
+      transportErrorCount: 0,
+    })
+  })
+
   it('correlates accepted and rejected COMMAND_ACK messages with pending commands', async () => {
     const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
     await provider.connect()

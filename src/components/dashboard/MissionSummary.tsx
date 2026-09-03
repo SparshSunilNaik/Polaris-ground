@@ -3,7 +3,13 @@ import { getMissionSummary } from '../../services/MissionService'
 import { Panel } from '../ui/Panel'
 import { ProgressBar } from '../ui/ProgressBar'
 import { SectionHeader } from '../ui/SectionHeader'
-export function MissionSummary({ snapshot }: { snapshot: GroundStationSnapshot }) {
+export function MissionSummary({
+  snapshot,
+  onOpenMission,
+}: {
+  snapshot: GroundStationSnapshot
+  onOpenMission?: () => void
+}) {
   const { mission } = snapshot
   return (
     <Panel>
@@ -31,6 +37,11 @@ export function MissionSummary({ snapshot }: { snapshot: GroundStationSnapshot }
         </div>
       </dl>
       <ProgressBar value={mission.progressPercent} label="Mission progress" />
+      {onOpenMission && (
+        <button className="mission-open" onClick={onOpenMission} type="button">
+          Open mission controls
+        </button>
+      )}
     </Panel>
   )
 }

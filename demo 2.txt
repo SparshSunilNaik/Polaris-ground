@@ -1,0 +1,121 @@
+# Polaris Ground Connection Settings + Diagnostics Runbook
+
+Validated topology:
+
+  PX4 UDP local 14580 -> Polaris Ground UDP 127.0.0.1:14540
+
+## 1. Clean startup
+
+Terminal A:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/start_polaris_sim.sh
+
+Wait for the Gazebo GUI and PX4 SITL to start.
+
+Terminal B:
+
+  cd ~/Documents/Polaris-ground
+  VITE_VEHICLE_PROVIDER=mavlink pnpm tauri dev
+
+The persisted/default MAVLink settings are Bind `127.0.0.1:14540` and Remote `127.0.0.1:14580`.
+
+To verify processes/endpoints:
+
+  cd ~/Documents/Polaris-ground
+  ps -ax -o pid=,command= | rg 'polaris-ground|px4_sitl|gz sim|vite'
+  lsof -nP -iUDP:14540 -iUDP:14580
+
+Expected: PX4 owns port 14580 and polaris-ground owns 127.0.0.1:14540.
+
+## 2. Healthy connection
+
+Open Operate. Confirm Gazebo shows the vehicle, Ground shows Connected and SYS-1, telemetry changes, and the Operator Map is live.
+
+## 3. Connection Settings
+
+Open Settings from the navigation rail or the top-bar Settings button. The form has Bind host, Bind UDP port, Remote host, and Remote UDP port.
+
+Default values:
+
+  Bind host: 127.0.0.1
+  Bind UDP port: 14540
+  Remote host: 127.0.0.1
+  Remote UDP port: 14580
+
+Save persists valid edits locally without changing the active transport. Apply and reconnect explicitly stops the old listener, replaces it, and waits for a heartbeat. Cancel edits restores the last saved values. Restore Defaults changes the form to the defaults; click Save to persist them.
+
+## 4. Save vs Apply
+
+1. Change only Remote UDP port to `14581`.
+2. Click Save.
+3. Return to Operate. The current inbound PX4 telemetry remains Connected and the map remains live because Save does not reconnect.
+4. Return to Settings and confirm `14581` was retained.
+5. Click Apply and reconnect.
+
+Important semantic: in this PX4 topology, PX4 independently sends telemetry to Ground's bind endpoint. UDP cannot prove the configured remote receiver accepted Ground's outbound traffic. Therefore Connected means inbound vehicle heartbeats/telemetry are live, even if the configured remote port is wrong. Diagnostics exposes the configured remote endpoint.
+
+## 5. Wrong-port diagnostics
+
+After applying port 14581, open Diagnostics. Confirm Vehicle address reports `127.0.0.1:14581` while inbound telemetry can remain Connected. Copy Diagnostics should report the configured endpoint, listener, counters, freshness timestamps, and errors without filesystem paths or secrets.
+
+## 6. Recovery
+
+Set Remote UDP port back to `14580`, click Apply and reconnect, and confirm Diagnostics reports `127.0.0.1:14580`, SYS-1 remains/is rediscovered, and telemetry/map are live.
+
+## 7. Diagnostics walkthrough
+
+Open Diagnostics. Confirm it shows connection/provider/listener state, bind and vehicle endpoints, reconnect attempts, received message count, transport error count, listener liveness, telemetry freshness, and last heartbeat. Click Copy Diagnostics and paste into a text editor; it should show `Diagnostics copied.`
+
+Healthy example:
+
+  Connection: Connected
+  Provider: mavlink
+  Listener: listening
+  Bind address: 127.0.0.1:14540
+  Vehicle address: 127.0.0.1:14580
+  Transport errors: 0
+
+## 8. Cancel, defaults, persistence, invalid values
+
+1. Edit a field, click Cancel edits, and confirm saved values return.
+2. Click Restore Defaults and confirm the four default values above. Click Save.
+3. Close Ground, press Ctrl-C in Terminal B, restart it with the Terminal B command, and confirm saved values load and Ground reconnects.
+4. Test empty host, port 0, port 65536, non-numeric port, and `bad host`. Each should show validation feedback and must not apply. Click Cancel edits after each.
+
+## 9. Regression checks
+
+1. In Operate, Arm then Disarm using confirmation dialogs and confirm both outcomes.
+2. Click the map to create a draft waypoint. Open Mission and confirm it appears. Use current vehicle position for an item and confirm coordinates update.
+3. Keep Ground foregrounded. If safely flying, enable Manual Flight, wait for Enabled neutral, briefly hold W, release, then press Escape and confirm Disabled/neutral. Land/RTL and confirm Disarmed.
+
+## 10. PX4 loss/recovery
+
+Only while landed and disarmed:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+Wait at least five seconds. Ground should show telemetry degraded/stale and the map should be stale. The healthy UDP listener is not recreated for heartbeat loss.
+
+Restore:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/start_polaris_sim.sh
+
+Keep Ground running. Confirm SYS-1, Connected, and live telemetry/map return.
+
+## 11. Safe shutdown
+
+Land/RTL and confirm Disarmed. Close Ground and press Ctrl-C in Terminal B. Then:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+Do not use pkill. If a process remains, identify its exact PID with ps/lsof and use only:
+
+  kill -TERM <exact-pid>
+
+## 12. Bug checklist
+
+Record the step, Ground state, settings values, Diagnostics copy, SYS identity, Gazebo behavior, telemetry/map freshness, waypoint/mission state, Manual Flight state, and exact terminal/UI error text.

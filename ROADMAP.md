@@ -163,7 +163,7 @@ Candidate scope:
 
 - Map, telemetry, vehicle health, mission, timeline, and command-feedback panels
 - Layout persistence and resizable panels
-- Connection diagnostics and improved status hierarchy
+- Connection Settings with validated local persistence, explicit apply/reconnect, and transport diagnostics
 
 Acceptance criteria:
 

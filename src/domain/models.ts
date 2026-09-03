@@ -1,6 +1,20 @@
 export type VehicleConnectionState =
   'disconnected' | 'connecting' | 'connected' | 'degraded' | 'reconnecting' | 'error'
 
+export interface ConnectionDiagnostics {
+  provider: 'mock' | 'mavlink'
+  bindAddress?: string
+  remoteAddress?: string
+  listenerState: 'stopped' | 'starting' | 'listening' | 'failed'
+  lastEventAt?: number
+  lastMessageAt?: number
+  lastHeartbeatAt?: number
+  lastError?: string
+  receivedMessageCount: number
+  transportErrorCount: number
+  reconnectAttempts: number
+}
+
 export type AutonomyState =
   'unavailable' | 'idle' | 'preparing' | 'active' | 'paused' | 'landing' | 'interrupted' | 'fault'
 export type MissionState = 'idle' | 'ready' | 'running' | 'completed' | 'interrupted' | 'failed'
@@ -146,6 +160,7 @@ export interface TimelineEvent {
 }
 export interface GroundStationSnapshot {
   connection: VehicleConnectionState
+  diagnostics?: ConnectionDiagnostics
   vehicle: VehicleIdentity
   telemetry: VehicleTelemetry
   autonomy: AutonomyState

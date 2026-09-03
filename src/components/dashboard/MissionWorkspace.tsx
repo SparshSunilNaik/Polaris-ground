@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   GroundStationSnapshot,
   MissionItemType,
@@ -29,20 +29,31 @@ export function MissionWorkspace({
   onUpload,
   onDownload,
   onClear,
+  onDraftChange,
+  selectedWaypointId,
+  onSelectWaypoint,
+  initialPlan,
 }: {
   snapshot: GroundStationSnapshot
   validate: (plan: MissionPlan) => MissionValidationResult
   onUpload: (plan: MissionPlan) => Promise<void>
   onDownload: () => Promise<void>
   onClear: () => Promise<void>
+  onDraftChange?: (plan: MissionPlan) => void
+  selectedWaypointId?: string
+  onSelectWaypoint?: (id: string) => void
+  initialPlan?: MissionPlan
 }) {
-  const [draft, setDraft] = useState<Draft>(() => draftFromPlan(snapshot.mission.activePlan ?? emptyPlan()))
+  const [draft, setDraft] = useState<Draft>(() =>
+    draftFromPlan(initialPlan ?? snapshot.mission.activePlan ?? emptyPlan()),
+  )
   const [confirmation, setConfirmation] = useState<Confirmation>()
-  const plan = toPlan(draft)
+  const plan = useMemo(() => toPlan(draft), [draft])
   const validation = validate(plan)
   const transferActive = Boolean(snapshot.mission.activeTransfer)
   const connected = snapshot.connection === 'connected'
   const position = availablePosition(snapshot)
+  useEffect(() => onDraftChange?.(plan), [onDraftChange, plan])
   const updateItem = (id: string, change: Partial<DraftItem>) =>
     setDraft((current) => ({
       ...current,
@@ -133,8 +144,16 @@ export function MissionWorkspace({
               </thead>
               <tbody>
                 {draft.items.map((item, index) => (
-                  <tr key={item.id}>
-                    <td>{index + 1}</td>
+                  <tr className={item.id === selectedWaypointId ? 'selected-waypoint' : ''} key={item.id}>
+                    <td>
+                      <button
+                        aria-label={`Select item ${index + 1}`}
+                        onClick={() => onSelectWaypoint?.(item.id)}
+                        type="button"
+                      >
+                        {index + 1}
+                      </button>
+                    </td>
                     <td>
                       <select
                         aria-label={`Item ${index + 1} type`}

@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react'
-import { CameraPlaceholder } from './components/dashboard/CameraPlaceholder'
+import { useEffect, useRef, useState } from 'react'
+import { OperatorMap } from './components/dashboard/OperatorMap'
+import { ConnectionDiagnostics } from './components/dashboard/ConnectionDiagnostics'
+import { ConnectionSettings } from './components/dashboard/ConnectionSettings'
 import { MissionSummary } from './components/dashboard/MissionSummary'
 import { MissionWorkspace } from './components/dashboard/MissionWorkspace'
 import { ManualFlight } from './components/dashboard/ManualFlight'
@@ -13,10 +15,21 @@ import { TopBar } from './components/layout/TopBar'
 import { EmptyState } from './components/ui/EmptyState'
 import { MetricDisplay } from './components/ui/MetricDisplay'
 import { getAppInfo } from './lib/tauri'
-import { createGroundStationService, startGroundStation } from './services/GroundStationService'
+import {
+  applyConnectionSettings,
+  createGroundStationService,
+  startGroundStation,
+} from './services/GroundStationService'
 import { getTelemetryHealth } from './services/TelemetryService'
 import { useGroundStationStore, useWorkspaceStore } from './stores/groundStationStore'
-import type { VehicleAction } from './domain/models'
+import type { MissionPlan, VehicleAction } from './domain/models'
+import {
+  loadConnectionSettings,
+  defaultConnectionSettings,
+  saveConnectionSettings,
+  validateConnectionSettings,
+  type ConnectionSettings as Settings,
+} from './domain/connectionSettings'
 import type { VehicleService } from './services/VehicleService'
 import './index.css'
 
@@ -25,6 +38,12 @@ export default function App() {
   const snapshot = useGroundStationStore((state) => state.snapshot)
   const page = useWorkspaceStore((state) => state.activeWorkspace)
   const setPage = useWorkspaceStore((state) => state.setActiveWorkspace)
+  const [localMissionPlan, setLocalMissionPlan] = useState<MissionPlan>()
+  const [selectedWaypointId, setSelectedWaypointId] = useState<string>()
+  const [connectionSettings, setConnectionSettings] = useState<Settings>(loadConnectionSettings)
+  const [savedConnectionSettings, setSavedConnectionSettings] = useState<Settings>(loadConnectionSettings)
+  const [connectionIssues, setConnectionIssues] = useState<Partial<Record<keyof Settings, string>>>({})
+  const [applyingSettings, setApplyingSettings] = useState(false)
   useEffect(() => {
     const service = createGroundStationService()
     serviceRef.current = service
@@ -48,6 +67,36 @@ export default function App() {
       valid: false,
       issues: [{ code: 'service_unavailable', message: 'Vehicle service is unavailable.' }],
     }
+  const addWaypoint = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
+    setLocalMissionPlan((current) => ({
+      id: current?.id ?? 'local-mission',
+      name: current?.name ?? 'Untitled mission',
+      items: [
+        ...(current?.items ?? snapshot.mission.activePlan?.items ?? []),
+        {
+          id: `local-item-${Date.now()}`,
+          type: 'waypoint',
+          latitude,
+          longitude,
+          altitudeMeters: Math.max(10, snapshot.telemetry.position.altitudeMeters),
+          altitudeReference: 'relative-to-home',
+          holdTimeSeconds: 0,
+          acceptanceRadiusMeters: 0,
+        },
+      ],
+    }))
+  }
+  const applySettings = async () => {
+    const validation = validateConnectionSettings(connectionSettings)
+    setConnectionIssues(validation.issues)
+    if (!validation.valid || !serviceRef.current) return
+    setApplyingSettings(true)
+    try {
+      await applyConnectionSettings(serviceRef.current, connectionSettings)
+    } finally {
+      setApplyingSettings(false)
+    }
+  }
   return (
     <AppShell>
       <NavigationRail active={page} onSelect={setPage} />
@@ -67,6 +116,42 @@ export default function App() {
               onClear={async () => {
                 await serviceRef.current?.clearMission()
               }}
+              onDraftChange={setLocalMissionPlan}
+              initialPlan={localMissionPlan}
+              selectedWaypointId={selectedWaypointId}
+              onSelectWaypoint={setSelectedWaypointId}
+            />
+          ) : page === 'Settings' ? (
+            <ConnectionSettings
+              applying={applyingSettings}
+              issues={connectionIssues}
+              onApply={() => void applySettings()}
+              onSave={() => {
+                const validation = validateConnectionSettings(connectionSettings)
+                setConnectionIssues(validation.issues)
+                if (!validation.valid) return
+                saveConnectionSettings(connectionSettings)
+                setSavedConnectionSettings(connectionSettings)
+              }}
+              onCancel={() => {
+                setConnectionSettings(savedConnectionSettings)
+                setConnectionIssues({})
+              }}
+              onRestoreDefaults={() => {
+                const defaults = defaultConnectionSettings()
+                setConnectionSettings(defaults)
+                setConnectionIssues({})
+              }}
+              onChange={(settings) => {
+                setConnectionSettings(settings)
+                setConnectionIssues(validateConnectionSettings(settings).issues)
+              }}
+              settings={connectionSettings}
+            />
+          ) : page === 'Diagnostics' ? (
+            <ConnectionDiagnostics
+              snapshot={snapshot}
+              onReconnect={() => void serviceRef.current?.reconnect()}
             />
           ) : page !== 'Operate' ? (
             <EmptyState
@@ -76,8 +161,17 @@ export default function App() {
           ) : (
             <>
               <section className="dashboard-grid dashboard-primary">
-                <CameraPlaceholder />
-                <VehicleStatusCard snapshot={snapshot} />
+                <OperatorMap
+                  localPlan={localMissionPlan ?? snapshot.mission.activePlan}
+                  onAddWaypoint={addWaypoint}
+                  onSelectWaypoint={setSelectedWaypointId}
+                  selectedWaypointId={selectedWaypointId}
+                  snapshot={snapshot}
+                />
+                <div className="operator-side">
+                  <VehicleStatusCard snapshot={snapshot} />
+                  <MissionSummary onOpenMission={() => setPage('Mission')} snapshot={snapshot} />
+                </div>
               </section>
               <section className="metrics">
                 {' '}
@@ -103,7 +197,6 @@ export default function App() {
                 />
               </section>
               <section className="dashboard-grid dashboard-secondary">
-                <MissionSummary snapshot={snapshot} />
                 <TimelineCard events={snapshot.timeline} />
               </section>
               <section className="dashboard-grid dashboard-actions">

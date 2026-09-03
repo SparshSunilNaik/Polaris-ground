@@ -47,6 +47,13 @@ const perimeterSurveyPlan: MissionPlan = {
 
 const initialSnapshot = (): GroundStationSnapshot => ({
   connection: 'disconnected',
+  diagnostics: {
+    provider: 'mock',
+    listenerState: 'stopped',
+    receivedMessageCount: 0,
+    transportErrorCount: 0,
+    reconnectAttempts: 0,
+  },
   vehicle: { id: 'PG-01', name: 'Polaris Scout', type: 'Multirotor', flightMode: 'Mission', armed: true },
   telemetry: {
     position: { latitude: 37.7749, longitude: -122.4194, altitudeMeters: 24 },
@@ -95,15 +102,19 @@ export class MockVehicleProvider implements VehicleProvider {
   private manualControlPrestreamFrames = 0
 
   async connect(): Promise<void> {
-    this.update({ connection: 'connecting' })
+    this.update({ connection: 'connecting', diagnostics: this.diagnostics('starting') })
     await Promise.resolve()
-    this.update({ connection: 'connected' })
+    this.update({ connection: 'connected', diagnostics: this.diagnostics('listening') })
     this.timer ??= setInterval(() => this.advance(), 1000)
+  }
+  async reconnect(): Promise<void> {
+    await this.disconnect()
+    await this.connect()
   }
   async disconnect(): Promise<void> {
     this.disableManualControl('Vehicle disconnected.')
     this.stopTimer()
-    this.update({ connection: 'disconnected' })
+    this.update({ connection: 'disconnected', diagnostics: this.diagnostics('stopped') })
   }
   getSnapshot(): GroundStationSnapshot {
     return this.snapshot
@@ -293,6 +304,13 @@ export class MockVehicleProvider implements VehicleProvider {
       autonomy: completed ? 'idle' : 'active',
       safety: this.tick === 8 ? 'warning' : completed ? 'safe' : prior.safety,
       timeline: timeline.slice(0, 30),
+      diagnostics: {
+        ...prior.diagnostics!,
+        lastEventAt: Date.now(),
+        lastMessageAt: Date.now(),
+        lastHeartbeatAt: Date.now(),
+        receivedMessageCount: prior.diagnostics!.receivedMessageCount + 1,
+      },
     }
     this.emit()
   }
@@ -302,6 +320,17 @@ export class MockVehicleProvider implements VehicleProvider {
   }
   private emit(): void {
     this.listeners.forEach((listener) => listener(this.snapshot))
+  }
+  private diagnostics(listenerState: NonNullable<GroundStationSnapshot['diagnostics']>['listenerState']) {
+    const current = this.snapshot.diagnostics
+    return {
+      provider: 'mock' as const,
+      listenerState,
+      reconnectAttempts: 0,
+      lastEventAt: Date.now(),
+      receivedMessageCount: current?.receivedMessageCount ?? 0,
+      transportErrorCount: current?.transportErrorCount ?? 0,
+    }
   }
   private recordCommand(
     action: VehicleAction,

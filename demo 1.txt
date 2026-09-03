@@ -1,0 +1,137 @@
+# Polaris Ground Operator Map Manual Acceptance Runbook
+
+This runbook uses the local PX4/Gazebo setup and MAVLink topology verified for this acceptance environment:
+
+  PX4 UDP local 14580 -> Polaris Ground UDP 127.0.0.1:14540
+
+Keep Polaris Ground foregrounded during Manual Flight. Do not switch applications while the vehicle is airborne.
+
+1. CLEAN START
+
+Terminal A - PX4 and Gazebo
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/start_polaris_sim.sh
+
+This project script starts the Gazebo server, starts the macOS Gazebo GUI client, then starts the gz_x500_mono_cam PX4 SITL target. Leave this terminal running. Wait until the Gazebo GUI window is visible and the terminal reports the world is ready before starting Ground.
+
+Terminal B - Polaris Ground from the current source
+
+  cd ~/Documents/Polaris-ground
+  VITE_VEHICLE_PROVIDER=mavlink VITE_MAVLINK_BIND_ADDRESS=127.0.0.1:14540 VITE_MAVLINK_REMOTE_ADDRESS=127.0.0.1:14580 pnpm tauri dev
+
+Leave this terminal running too. The current run used these same endpoint variables.
+
+Verify processes and the UDP endpoints in a third terminal:
+
+  cd ~/Documents/Polaris-ground
+  ps -ax -o pid=,stat=,command= | rg 'polaris-ground|px4_sitl|gz sim|vite'
+  lsof -nP -iUDP:14540 -iUDP:14580
+
+Expected: px4 owns UDP 14580 and polaris-ground owns UDP 127.0.0.1:14540. The process list includes px4, `gz sim -r -s`, `gz sim -g`, Vite, and polaris-ground.
+
+If a previous run must be cleaned up, do not use pkill. First close Polaris Ground normally and press Ctrl-C in its Terminal B. Then stop the simulation with:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+If Ground remains after its terminal has closed, identify its exact PID with the ps/lsof commands above and run only:
+
+  kill -TERM <exact-polaris-ground-pid>
+
+2. CONNECTION CHECK
+
+In Gazebo, see the x500 vehicle resting in the default world. In Terminal A, PX4 remains running without a crash. In Polaris Ground, the top status must show Connected and the vehicle identity must be SYS-1.
+
+On Operate, latitude, longitude, heading, altitude, ground speed, battery, and link data should be populated and update. The Operator map should show OpenStreetMap tiles, a green triangular vehicle marker at the displayed telemetry latitude/longitude, and a heading-oriented triangle. The marker is live only while the connection is Connected.
+
+Optional map-network check used during this run:
+
+  curl --fail --silent --show-error --head --max-time 15 "https://tile.openstreetmap.org/0/0/0.png"
+
+Expected result: HTTP 200.
+
+3. BASIC MAP TEST
+
+1. Open Operate. Confirm Operator map is the primary panel, with vehicle status and mission summary alongside it.
+2. Confirm the vehicle marker matches the current telemetry coordinates and triangle direction matches the displayed heading.
+3. Click Center vehicle. The map should re-center and zoom to the vehicle.
+4. Pan and zoom using the normal map controls. Do not click to create a waypoint unless starting the mission draft test.
+5. Click Fit mission after a valid local draft exists. The map should frame its local-draft waypoints.
+
+4. LIVE FLIGHT TEST
+
+Keep Polaris Ground in the foreground throughout this section. Do not switch to Terminal A or Terminal B while airborne.
+
+1. In Vehicle Actions, click Arm and confirm Arm. Verify Gazebo motors/armed state and Ground armed state.
+2. Click Take off and confirm Take off. Verify visible climb in Gazebo, rising altitude telemetry, and the vehicle marker remains live on the map.
+3. In Manual Flight, click Enable Keyboard Control. Wait for Enabled neutral or Active.
+4. Hold and release W, S, A, and D individually. Verify the expected forward/back/left/right motion in Gazebo, changing ground speed/position telemetry, and corresponding map-marker movement.
+5. Hold and release Arrow Up and Arrow Down. Verify climb/descent in Gazebo and altitude telemetry; map position remains live.
+6. Hold and release Arrow Left and Arrow Right. Verify yaw in Gazebo and heading/marker orientation changes.
+7. Hold a simultaneous input such as W + D + Arrow Up, then release every key. Verify combined motion while held, then Neutral setpoint and ground speed settling after release.
+8. Press Escape. Verify Manual Flight becomes Disabled and no further manual movement occurs. Escape does not disarm.
+9. Land or Return to launch and wait for the vehicle to land and Ground to show Disarmed before any terminal-side fault test.
+
+5. MISSION DRAFT TEST
+
+1. On Operate, click several map locations. Each click adds a local-draft waypoint only. Confirm numbered amber draft markers and the connecting draft polyline appear.
+2. Click a local-draft waypoint marker. Open Mission and confirm its matching mission-list row is highlighted.
+3. In Mission, click the numbered Select item control for another row. Return to Operate and confirm the matching draft marker is selected.
+4. In Mission, click Use position for an item. Confirm its latitude/longitude become the current live vehicle position, then return to Operate to confirm its marker moves to those coordinates.
+5. Use the Mission controls to edit, reorder, and remove draft items. Return to Operate after each operation and confirm marker order/polyline and selection remain synchronized.
+6. Back on Operate, click Fit mission to frame the valid local-draft waypoints.
+
+6. VEHICLE MISSION TEST
+
+1. In Mission, validate the local draft, click Upload mission, and confirm the transfer dialog. Upload/download/clear remain available only here; the map does not transmit missions.
+2. Download from vehicle, then return to Operate. Confirm vehicle-readback waypoints are visually distinct from the local draft: blue square markers/dashed line for vehicle plan, amber round markers/solid line for draft.
+3. Click additional map locations and verify only the local amber draft changes. No upload/download dialog, command, or PX4 mission change should occur from a map click alone.
+
+7. DEGRADED/RECOVERY TEST
+
+Perform this section only after the vehicle is safely landed and Ground shows Disarmed.
+
+Stop the tested PX4/Gazebo environment from a terminal:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+Wait at least three seconds. Ground should become DEGRADED, map tiles should dim, the map state should say Telemetry stale, and the vehicle marker must not silently appear current.
+
+Restore the same topology with:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/start_polaris_sim.sh
+
+Wait for Gazebo to show the vehicle and PX4 to be ready. Keep Ground running. Verify Ground restores SYS-1/Connected, telemetry resumes, and the map returns to Live.
+
+8. SAFE SHUTDOWN
+
+1. If the vehicle is airborne, use Land or Return to launch in Ground, then wait for Disarmed.
+2. Close Polaris Ground normally and press Ctrl-C in Terminal B.
+3. In Terminal A, press Ctrl-C, or from another terminal run:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+4. Confirm no remaining exact processes/endpoints with:
+
+  cd ~/Documents/Polaris-ground
+  ps -ax -o pid=,stat=,command= | rg 'polaris-ground|px4_sitl|gz sim|vite'
+  lsof -nP -iUDP:14540 -iUDP:14580
+
+If an individually identified process remains, use kill -TERM with only the exact PID printed by those commands. Do not use broad pkill or killall commands.
+
+9. BUG CHECKLIST
+
+If anything fails, record:
+
+- Step number and exact action.
+- Ground connection state and SYS identity.
+- Gazebo vehicle behavior.
+- Latitude, longitude, altitude, speed, and link telemetry.
+- Map marker position, stale/live state, and heading orientation.
+- Draft/vehicle waypoint markers, polyline, selection, and Fit mission behavior.
+- Mission transfer state and whether any action was confirmed.
+- Exact Polaris Ground, PX4, Gazebo, or terminal error text.

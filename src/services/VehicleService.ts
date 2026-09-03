@@ -10,7 +10,9 @@ import type {
 import type { VehicleProvider } from '../providers/VehicleProvider'
 
 export class VehicleService {
-  private readonly provider: VehicleProvider
+  private provider: VehicleProvider
+  private listeners = new Map<(snapshot: GroundStationSnapshot) => void, () => void>()
+  private lifecycle = Promise.resolve()
 
   constructor(provider: VehicleProvider) {
     this.provider = provider
@@ -21,11 +23,18 @@ export class VehicleService {
   disconnect(): Promise<void> {
     return this.provider.disconnect()
   }
+  reconnect(): Promise<void> {
+    return this.provider.reconnect()
+  }
   getSnapshot(): GroundStationSnapshot {
     return this.provider.getSnapshot()
   }
   subscribe(listener: (snapshot: GroundStationSnapshot) => void): () => void {
-    return this.provider.subscribe(listener)
+    this.listeners.set(listener, this.provider.subscribe(listener))
+    return () => {
+      this.listeners.get(listener)?.()
+      this.listeners.delete(listener)
+    }
   }
   sendCommand(action: VehicleAction): Promise<VehicleCommand> {
     return this.provider.sendCommand(action)
@@ -52,6 +61,27 @@ export class VehicleService {
     return this.provider.validateMission(plan)
   }
   dispose(): void {
+    this.listeners.forEach((unsubscribe) => unsubscribe())
+    this.listeners.clear()
     this.provider.dispose()
+  }
+  replaceProvider(provider: VehicleProvider): Promise<void> {
+    return this.queue(async () => {
+      const previous = this.provider
+      this.listeners.forEach((unsubscribe) => unsubscribe())
+      await previous.disconnect()
+      previous.dispose()
+      this.provider = provider
+      this.listeners.forEach((_, listener) => this.listeners.set(listener, provider.subscribe(listener)))
+      await provider.connect()
+    })
+  }
+  private queue<T>(task: () => Promise<T>): Promise<T> {
+    const pending = this.lifecycle.then(task, task)
+    this.lifecycle = pending.then(
+      () => undefined,
+      () => undefined,
+    )
+    return pending
   }
 }

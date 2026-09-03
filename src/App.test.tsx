@@ -14,10 +14,11 @@ describe('App', () => {
     expect(screen.getByRole('dialog')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Confirm Land' })).toBeVisible()
   })
-  it('navigates to a clean placeholder workspace', async () => {
+  it('shows connection diagnostics', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }))
-    expect(screen.getByText('Diagnostics workspace')).toBeVisible()
+    expect(screen.getByText('Transport health')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeVisible()
   })
   it('renders the mission editor and requires confirmation before transfer actions', async () => {
     render(<App />)

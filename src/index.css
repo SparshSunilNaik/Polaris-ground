@@ -184,6 +184,160 @@ nav button.active {
 .dashboard-primary {
   grid-template-columns: 2fr 1fr;
 }
+.operator-side {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+.operator-map-panel {
+  min-width: 0;
+}
+.operator-map {
+  position: relative;
+  height: 460px;
+  margin-top: var(--space-4);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.operator-map .leaflet-container {
+  height: 100%;
+  background: #1c2a30;
+  font-family: Manrope, sans-serif;
+}
+.operator-map.telemetry-stale .leaflet-tile-pane {
+  filter: grayscale(0.85) brightness(0.58);
+}
+.map-state {
+  padding: 5px 8px;
+  border-radius: 3px;
+  font: 500 10px 'IBM Plex Mono';
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.map-state.live {
+  background: var(--accent-ink);
+  color: var(--accent);
+}
+.map-state.stale {
+  background: var(--warning-ink);
+  color: var(--warning);
+}
+.map-note {
+  margin-top: var(--space-3);
+  color: var(--muted);
+  font-size: 12px;
+}
+.map-controls {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.map-controls button,
+.mission-open {
+  padding: 7px 9px;
+  border: 1px solid #4a6e65;
+  border-radius: 3px;
+  background: var(--accent-ink);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+}
+.map-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.map-legend {
+  position: absolute;
+  z-index: 500;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgb(11 16 21 / 88%);
+  color: var(--text);
+  font: 10px 'IBM Plex Mono';
+}
+.map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.map-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.map-legend .vehicle {
+  background: var(--accent);
+}
+.map-legend .draft {
+  background: var(--warning);
+}
+.map-legend .vehicle-plan {
+  background: #8cb4ef;
+}
+.map-icon-container {
+  background: transparent;
+  border: 0;
+}
+.map-vehicle-marker {
+  display: block;
+  color: var(--accent);
+  font-size: 29px;
+  line-height: 30px;
+  transform: rotate(var(--heading));
+  text-shadow: 0 0 8px #000;
+}
+.map-vehicle-marker.stale {
+  color: var(--warning);
+  opacity: 0.7;
+}
+.map-waypoint {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: #17232b;
+  color: var(--warning);
+  font: 700 11px 'IBM Plex Mono';
+}
+.map-waypoint.vehicle {
+  color: #8cb4ef;
+  border-radius: 3px;
+}
+.map-waypoint.selected {
+  box-shadow: 0 0 0 3px #fff;
+}
+.mission-line.draft {
+  stroke: var(--warning);
+  stroke-width: 3;
+}
+.mission-line.vehicle {
+  stroke: #8cb4ef;
+  stroke-dasharray: 5 6;
+  stroke-width: 3;
+}
+.selected-waypoint {
+  background: rgb(145 215 196 / 14%);
+}
+.selected-waypoint button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.mission-open {
+  margin-top: var(--space-4);
+}
 .dashboard-secondary {
   grid-template-columns: 1fr 1.25fr;
 }
@@ -505,6 +659,53 @@ nav button.active {
 }
 .empty-state p:last-child {
   color: var(--muted);
+}
+.connection-settings {
+  display: grid;
+  max-width: 620px;
+  gap: var(--space-4);
+}
+.connection-settings h2 {
+  margin-top: calc(var(--space-1) * -1);
+}
+.settings-copy,
+.diagnostic-error {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.connection-settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.connection-settings input,
+.connection-settings select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: 13px 'IBM Plex Mono';
+}
+.connection-settings [aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.connection-settings small,
+.diagnostic-error {
+  color: var(--danger);
+}
+.connection-settings .mission-open {
+  justify-self: start;
+}
+.diagnostics-panel {
+  max-width: 760px;
+}
+.diagnostics-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 .loading-state {
   display: grid;

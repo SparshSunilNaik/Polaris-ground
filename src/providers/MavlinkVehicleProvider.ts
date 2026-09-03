@@ -69,6 +69,13 @@ type ActiveMissionTransfer = {
 
 const initial = (): GroundStationSnapshot => ({
   connection: 'disconnected',
+  diagnostics: {
+    provider: 'mavlink',
+    listenerState: 'stopped',
+    receivedMessageCount: 0,
+    transportErrorCount: 0,
+    reconnectAttempts: 0,
+  },
   vehicle: {
     id: 'Awaiting vehicle',
     name: 'MAVLink vehicle',
@@ -119,6 +126,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private manualControlNeutralFrames = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private reconnectAttempts = 0
+  private readonly endpoint: string
   private readonly remoteAddress: string
   private readonly commandTimeoutMs: number
   constructor(
@@ -134,29 +142,50 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       (event) => this.handleTransportFailure(event.message),
     )
     this.remoteAddress = remoteAddress
+    this.endpoint = endpoint
     this.commandTimeoutMs = commandTimeoutMs
   }
   async connect(): Promise<void> {
-    this.set({ ...this.snapshot, connection: 'connecting' })
+    if (this.snapshot.connection === 'connecting' || this.snapshot.connection === 'connected') return
+    this.set({ ...this.snapshot, connection: 'connecting', diagnostics: this.diagnostics('starting') })
     try {
       await this.connection.connect()
       this.set({
         ...this.snapshot,
         connection: 'connecting',
+        diagnostics: this.diagnostics('listening'),
         timeline: [
           this.event('info', 'Listening for vehicle', 'Waiting for a MAVLink heartbeat.'),
           ...this.snapshot.timeline,
         ],
       })
-    } catch {
+    } catch (error) {
+      const message = `Could not start the MAVLink listener: ${String(error)}`
       this.set({
         ...this.snapshot,
         connection: 'error',
+        diagnostics: this.diagnostics('failed', message),
+        timeline: [this.event('warning', 'Connection unavailable', message), ...this.snapshot.timeline],
+      })
+    }
+  }
+  async reconnect(): Promise<void> {
+    this.clearTransportReconnect()
+    this.disableManualControl('Vehicle transport is reconnecting.')
+    this.set({ ...this.snapshot, connection: 'reconnecting', diagnostics: this.diagnostics('starting') })
+    try {
+      await this.connection.reconnect()
+      this.set({
+        ...this.snapshot,
+        connection: 'connecting',
+        diagnostics: this.diagnostics('listening'),
         timeline: [
-          this.event('warning', 'Connection unavailable', 'Could not start the MAVLink listener.'),
+          this.event('info', 'Transport reconnected', 'Waiting for a MAVLink heartbeat.'),
           ...this.snapshot.timeline,
         ],
       })
+    } catch (error) {
+      this.handleTransportFailure(String(error))
     }
   }
   async disconnect(): Promise<void> {
@@ -167,6 +196,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     this.set({
       ...this.snapshot,
       connection: 'disconnected',
+      diagnostics: this.diagnostics('stopped'),
       timeline: [
         this.event('info', 'Vehicle disconnected', 'MAVLink listener stopped.'),
         ...this.snapshot.timeline,
@@ -326,6 +356,17 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   }
   private handle(message: Parameters<typeof translateMavlinkMessage>[0]): void {
     if (this.vehicleSystemId !== undefined && message.systemId !== this.vehicleSystemId) return
+    const receivedAt = Date.now()
+    this.set({
+      ...this.snapshot,
+      diagnostics: {
+        ...this.snapshot.diagnostics!,
+        lastEventAt: receivedAt,
+        lastMessageAt: receivedAt,
+        ...(message.messageId === 0 ? { lastHeartbeatAt: receivedAt } : {}),
+        receivedMessageCount: this.snapshot.diagnostics!.receivedMessageCount + 1,
+      },
+    })
     if (message.messageId === 77) this.handleCommandAck(message)
     if (this.handleMissionMessage(message)) return
     let initialHeartbeat = false
@@ -977,6 +1018,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       this.set({
         ...this.snapshot,
         connection: 'reconnecting',
+        diagnostics: this.diagnostics('starting', message),
         telemetry: {
           ...this.snapshot.telemetry,
           link: { qualityPercent: 0, latencyMs: 0, packetLossPercent: 100 },
@@ -994,6 +1036,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       this.set({
         ...this.snapshot,
         connection: 'error',
+        diagnostics: this.diagnostics('failed', 'MAVLink transport could not be restored.'),
         timeline: [
           this.event('warning', 'Transport unavailable', 'MAVLink transport could not be restored.'),
           ...this.snapshot.timeline,
@@ -1016,6 +1059,23 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.reconnectAttempts = 0
+  }
+  private diagnostics(
+    listenerState: NonNullable<GroundStationSnapshot['diagnostics']>['listenerState'],
+    lastError?: string,
+  ) {
+    const current = this.snapshot.diagnostics
+    return {
+      provider: 'mavlink' as const,
+      bindAddress: this.endpoint,
+      remoteAddress: this.remoteAddress,
+      listenerState,
+      reconnectAttempts: this.reconnectAttempts,
+      lastEventAt: Date.now(),
+      receivedMessageCount: current?.receivedMessageCount ?? 0,
+      transportErrorCount: (current?.transportErrorCount ?? 0) + Number(Boolean(lastError)),
+      ...(lastError ? { lastError } : {}),
+    }
   }
 }
 

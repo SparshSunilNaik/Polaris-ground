@@ -6,7 +6,7 @@ It is not an onboard autonomy system, flight controller, navigation system, MAVL
 
 ## Current Milestone
 
-v0.3 adds a bounded command path for arm, disarm, takeoff, land, and return to launch. Every action requires explicit operator confirmation, is sent once, and reaches an accepted, rejected, or timed-out outcome. `MockVehicleProvider` remains the default; `MavlinkVehicleProvider` uses MAVLink UDP when configured.
+v0.5 adds operator workspace foundations including map and mission workflows, plus Connection Settings and Diagnostics. Connection settings validate MAVLink UDP addresses, persist in browser local storage, and only take effect through explicit apply/reconnect. Diagnostics reports listener liveness, message/error counters, message freshness, heartbeat time, and the latest transport error from product-facing provider data; its copy action exports that summary without protocol payloads. `MockVehicleProvider` remains the default; `MavlinkVehicleProvider` uses MAVLink UDP when configured.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ Run `pnpm lint`, `pnpm test`, `pnpm build`, and the Cargo checks before changes.
 
 ## Current Limitations
 
-The command surface is intentionally limited. Mission upload, parameter writes, firmware flashing, serial/USB access, scripting, and autonomous command execution are excluded. Video, maps, mission editing, diagnostics, engineering mode, vehicle discovery, and release signing remain deferred.
+The command surface is intentionally limited. Parameter writes, firmware flashing, serial/USB access, scripting, and autonomous command execution are excluded. Video, engineering mode, vehicle discovery, and release signing remain deferred.
 
 ## Roadmap
 

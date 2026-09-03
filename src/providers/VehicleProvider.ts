@@ -10,6 +10,7 @@ import type {
 
 export interface VehicleProvider {
   connect(): Promise<void>
+  reconnect(): Promise<void>
   disconnect(): Promise<void>
   getSnapshot(): GroundStationSnapshot
   subscribe(listener: (snapshot: GroundStationSnapshot) => void): () => void
