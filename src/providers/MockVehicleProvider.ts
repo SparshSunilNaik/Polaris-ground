@@ -132,6 +132,7 @@ export class MockVehicleProvider implements VehicleProvider {
       return this.recordCommand(action, 'rejected', 'A matching command is already awaiting a response.')
     if (this.snapshot.connection !== 'connected')
       return this.recordCommand(action, 'rejected', 'Vehicle is not connected.')
+    this.relinquishManualControl(`Keyboard control disabled before ${actionLabel(action)}.`)
     const command = this.recordCommand(action, 'pending', `${actionLabel(action)} requested.`)
     setTimeout(
       () => this.completeCommand(command.id, 'accepted', `${actionLabel(action)} accepted by vehicle.`),
@@ -173,6 +174,7 @@ export class MockVehicleProvider implements VehicleProvider {
     this.setManualControl('disabled', reason)
   }
   async downloadMission(): Promise<MissionOperationReceipt> {
+    this.relinquishManualControl('Keyboard control disabled before mission download.')
     return this.completeMissionOperation(
       'download',
       'Mission download completed.',
@@ -188,9 +190,11 @@ export class MockVehicleProvider implements VehicleProvider {
         undefined,
         'invalid_mission',
       )
-    return this.completeMissionOperation('upload', 'Mission upload accepted.', plan)
+    this.relinquishManualControl('Keyboard control disabled before mission upload.')
+    return this.completeMissionOperation('upload', 'Mission upload accepted; download to verify.', plan)
   }
   async clearMission(): Promise<MissionOperationReceipt> {
+    this.relinquishManualControl('Keyboard control disabled before mission clear.')
     return this.completeMissionOperation('clear', 'Mission cleared.', {
       id: 'mock-empty-mission',
       name: 'Vehicle mission',
@@ -212,6 +216,15 @@ export class MockVehicleProvider implements VehicleProvider {
   private stopManualControl(): void {
     if (this.manualControlTimer) clearInterval(this.manualControlTimer)
     this.manualControlTimer = undefined
+  }
+  private relinquishManualControl(reason: string): void {
+    if (
+      !['prestreaming', 'entering_offboard', 'enabled_neutral', 'active'].includes(
+        this.snapshot.manualControl.status,
+      )
+    )
+      return
+    this.disableManualControl(reason)
   }
   private advanceManualControl(): void {
     if (this.snapshot.manualControl.status === 'prestreaming') {
@@ -382,7 +395,10 @@ export class MockVehicleProvider implements VehicleProvider {
       mission: {
         ...this.snapshot.mission,
         activePlan: type === 'upload' && vehiclePlan ? vehiclePlan : this.snapshot.mission.activePlan,
-        vehiclePlan: vehiclePlan ?? this.snapshot.mission.vehiclePlan,
+        vehiclePlan:
+          type === 'upload'
+            ? this.snapshot.mission.vehiclePlan
+            : (vehiclePlan ?? this.snapshot.mission.vehiclePlan),
         name: vehiclePlan?.name ?? this.snapshot.mission.name,
         currentWaypoint: type === 'clear' ? 0 : this.snapshot.mission.currentWaypoint,
         totalWaypoints:

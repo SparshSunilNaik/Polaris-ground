@@ -56,6 +56,10 @@ Key release recomputes input from the remaining held keys, returning an axis to 
 
 Window blur, hidden-document state, leaving the operator workspace, disconnect, provider failure, provider disposal, and application shutdown also clear held input and neutralize or terminate the provider lifecycle. No event-age timeout is applied to legitimately held keys.
 
+## Control Ownership
+
+Manual Flight exclusively owns velocity setpoint traffic only while it is in `prestreaming`, `entering_offboard`, `enabled_neutral`, or `active`. Before the provider sends a vehicle command or starts a mission upload, download, or clear transfer, it relinquishes that ownership: it marks Manual Flight disabled, sends a neutral BODY_NED setpoint, requests Position mode, and retains bounded neutral frames when the transport remains available. The requested operation is sent only after that handoff has been transmitted. If the handoff cannot be sent, the command or mission operation is rejected locally rather than competing with Offboard control.
+
 ## Mock Provider
 
 `MockVehicleProvider` implements the same provider contract and deterministic lifecycle. It simulates prestreaming, Offboard entry, neutral and active states, directional position/altitude changes, and disable/disposal cleanup without importing or constructing MAVLink frames. This keeps UI and domain behavior testable independently of PX4 and native transport.

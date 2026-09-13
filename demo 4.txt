@@ -1,0 +1,53 @@
+# Mission Workflow Validation
+
+## Startup
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/start_polaris_sim.sh
+
+  cd ~/Documents/Polaris-ground
+  VITE_VEHICLE_PROVIDER=mavlink pnpm tauri dev
+
+Confirm Connected, SYS-1, live telemetry, and a live Operator Map.
+
+## Draft and verification
+
+1. Create local draft waypoints with map clicks and Mission controls.
+2. Upload using the Mission confirmation dialog. Upload acceptance alone is not readback verification.
+3. Download from vehicle. Vehicle Mission appears only from the readback.
+4. Confirm Local Draft and Vehicle Mission report In Sync when their supported fields match.
+5. Edit/reorder a draft item. Confirm Draft Differs and Vehicle Mission stays read-only.
+6. Download again. Confirm the modified draft is not overwritten.
+7. Choose Use Vehicle Mission as Draft, confirm adoption, and verify In Sync.
+8. Clear vehicle mission with confirmation. Confirm Local Draft remains and Vehicle Mission is empty.
+9. Re-upload the retained draft, read back, and confirm In Sync.
+
+## Map regression
+
+Verify map click-to-add, map/list selection, coordinate edit, reorder, remove, Use Current Vehicle Position, Fit Mission, draft polyline, and vehicle-readback polyline.
+
+## Transfer loss
+
+Only while safely disarmed, begin a mission download then run:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+Confirm the transfer fails and does not resume. Restore PX4 with:
+
+  ./scripts/start_polaris_sim.sh
+
+Confirm a new explicit download succeeds.
+
+## Safe shutdown
+
+Land/disarm first. Close Ground, then run:
+
+  cd ~/Documents/Polaris/PX4-Autopilot
+  ./scripts/stop_polaris_sim.sh
+
+Do not use pkill. Identify any remaining process with ps/lsof and use only `kill -TERM <exact-pid>`.
+
+## Bug checklist
+
+Record step, connection state, draft sync state, vehicle mission state, transfer result, map behavior, PX4/Gazebo behavior, and exact error text.

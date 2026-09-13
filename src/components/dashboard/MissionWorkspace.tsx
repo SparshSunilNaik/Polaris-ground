@@ -5,6 +5,7 @@ import type {
   MissionPlan,
   MissionValidationResult,
 } from '../../domain/models'
+import { compareMissionPlans, type MissionSyncState } from '../../domain/missionComparison'
 import { Panel } from '../ui/Panel'
 import { ProgressBar } from '../ui/ProgressBar'
 import { SectionHeader } from '../ui/SectionHeader'
@@ -20,7 +21,7 @@ type DraftItem = Omit<
   acceptanceRadiusMeters: string
 }
 type Draft = { id: string; name: string; items: DraftItem[] }
-type Confirmation = 'upload' | 'download' | 'clear'
+type Confirmation = 'upload' | 'download' | 'clear' | 'adopt'
 const itemTypes: MissionItemType[] = ['takeoff', 'waypoint', 'land', 'return-to-launch']
 
 export function MissionWorkspace({
@@ -47,9 +48,14 @@ export function MissionWorkspace({
   const [draft, setDraft] = useState<Draft>(() =>
     draftFromPlan(initialPlan ?? snapshot.mission.activePlan ?? emptyPlan()),
   )
+  const [adoptedPlan, setAdoptedPlan] = useState<MissionPlan>(
+    () => initialPlan ?? snapshot.mission.activePlan ?? emptyPlan(),
+  )
   const [confirmation, setConfirmation] = useState<Confirmation>()
   const plan = useMemo(() => toPlan(draft), [draft])
   const validation = validate(plan)
+  const draftDirty = isDraftDirty(plan, adoptedPlan)
+  const syncState = compareMissionPlans(plan, snapshot.mission.vehiclePlan)
   const transferActive = Boolean(snapshot.mission.activeTransfer)
   const connected = snapshot.connection === 'connected'
   const position = availablePosition(snapshot)
@@ -74,6 +80,10 @@ export function MissionWorkspace({
     if (action === 'upload') await onUpload(plan)
     if (action === 'download') await onDownload()
     if (action === 'clear') await onClear()
+    if (action === 'adopt' && snapshot.mission.vehiclePlan) {
+      setDraft(draftFromPlan(snapshot.mission.vehiclePlan))
+      setAdoptedPlan(snapshot.mission.vehiclePlan)
+    }
   }
   return (
     <div className="mission-workspace">
@@ -117,7 +127,9 @@ export function MissionWorkspace({
           <SectionHeader
             eyebrow="LOCAL DRAFT"
             title="Editable mission"
-            action={<span className="draft-badge">Not vehicle-confirmed</span>}
+            action={
+              <span className="draft-badge">{draftDirty ? 'Unsaved local changes' : 'Local draft'}</span>
+            }
           />
           <label className="mission-name">
             Mission name
@@ -288,7 +300,13 @@ export function MissionWorkspace({
         <div className="mission-side">
           <Panel>
             <SectionHeader eyebrow="VEHICLE PLAN" title="Confirmed vehicle plan" />
-            <VehiclePlan plan={snapshot.mission.vehiclePlan} local={plan} />
+            <VehiclePlan
+              draftDirty={draftDirty}
+              onAdopt={() => setConfirmation('adopt')}
+              plan={snapshot.mission.vehiclePlan}
+              syncState={syncState}
+              transferActive={transferActive}
+            />
           </Panel>
           <Panel>
             <SectionHeader
@@ -325,29 +343,35 @@ function Validation({ result }: { result: MissionValidationResult }) {
     </div>
   )
 }
-function VehiclePlan({ plan, local }: { plan?: MissionPlan; local: MissionPlan }) {
+function VehiclePlan({
+  plan,
+  syncState,
+  draftDirty,
+  transferActive,
+  onAdopt,
+}: {
+  plan?: MissionPlan
+  syncState: MissionSyncState
+  draftDirty: boolean
+  transferActive: boolean
+  onAdopt: () => void
+}) {
   if (!plan)
-    return <p className="mission-muted">No vehicle-confirmed mission has been downloaded or acknowledged.</p>
-  const differs =
-    plan.items.length !== local.items.length ||
-    plan.items.some((item, index) => {
-      const localItem = local.items[index]
-      return (
-        !localItem ||
-        item.type !== localItem.type ||
-        item.latitude !== localItem.latitude ||
-        item.longitude !== localItem.longitude ||
-        item.altitudeMeters !== localItem.altitudeMeters
-      )
-    })
+    return (
+      <p className="mission-muted">
+        No vehicle plan has been downloaded. Upload acceptance is not verification.
+      </p>
+    )
   return (
     <>
-      <p className="mission-muted">
-        Read-only.{' '}
-        {differs
-          ? 'Differs from local draft.'
-          : 'Same structure as local draft; upload acknowledgement is not readback verification.'}
-      </p>
+      <p className="mission-muted">Read-only. {syncText(syncState)}</p>
+      <button
+        disabled={transferActive || (syncState === 'in_sync' && !draftDirty)}
+        onClick={onAdopt}
+        type="button"
+      >
+        Adopt vehicle plan{draftDirty ? ' (replaces local changes)' : ''}
+      </button>
       <ol className="vehicle-plan-list">
         {plan.items.map((item, index) => (
           <li key={item.id}>
@@ -375,7 +399,9 @@ function ConfirmationDialog({
       ? `Upload “${plan.name || 'Unnamed mission'}” with ${plan.items.length} items to the vehicle?`
       : action === 'download'
         ? 'Download the vehicle mission into the read-only vehicle plan. The local draft will not be changed.'
-        : 'Clear the vehicle mission. This destructive action does not erase the local draft.'
+        : action === 'adopt'
+          ? `Replace the local draft with the ${plan.items.length}-item vehicle plan? Local changes will be lost.`
+          : 'Clear the vehicle mission. This destructive action does not erase the local draft.'
   return (
     <div
       aria-labelledby="mission-confirmation-title"
@@ -439,7 +465,12 @@ const newDraftItem = (index: number): DraftItem => ({
 const labelFor = (type: MissionItemType): string =>
   ({ takeoff: 'Takeoff', waypoint: 'Waypoint', land: 'Land', 'return-to-launch': 'Return to launch' })[type]
 const labelForAction = (action: Confirmation): string =>
-  ({ upload: 'Upload mission', download: 'Download mission', clear: 'Clear mission' })[action]
+  ({
+    upload: 'Upload mission',
+    download: 'Download mission',
+    clear: 'Clear mission',
+    adopt: 'Adopt vehicle plan',
+  })[action]
 const transferText = (snapshot: GroundStationSnapshot): string => {
   const transfer = snapshot.mission.activeTransfer
   if (!transfer)
@@ -452,6 +483,12 @@ const transferText = (snapshot: GroundStationSnapshot): string => {
     clear: 'Clearing vehicle mission',
   }[transfer.type]
 }
+const isDraftDirty = (draft: MissionPlan, adoptedPlan: MissionPlan): boolean =>
+  draft.name !== adoptedPlan.name || compareMissionPlans(draft, adoptedPlan) !== 'in_sync'
+const syncText = (state: MissionSyncState): string =>
+  state === 'in_sync'
+    ? 'Matches the downloaded vehicle plan within transfer tolerance.'
+    : 'Differs from the local draft.'
 const availablePosition = (
   snapshot: GroundStationSnapshot,
 ): { latitude: number; longitude: number } | undefined => {

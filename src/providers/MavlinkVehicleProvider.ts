@@ -54,6 +54,12 @@ export const MANUAL_CONTROL_OFFBOARD_TIMEOUT_MS = 2000
 export const MANUAL_CONTROL_NEUTRAL_FRAMES = 3
 const MAX_TRANSPORT_RECONNECT_ATTEMPTS = 3
 const MAXIMUM_MISSION_ITEM_COUNT = MAXIMUM_WAYPOINT_COUNT + 2
+const MANUAL_CONTROL_OWNING_STATUSES = new Set([
+  'prestreaming',
+  'entering_offboard',
+  'enabled_neutral',
+  'active',
+])
 type MissionStage = 'waiting_for_count' | 'waiting_for_request' | 'waiting_for_item' | 'waiting_for_ack'
 type ActiveMissionTransfer = {
   operation: MissionTransferOperation
@@ -122,6 +128,7 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private missionTimeout: ReturnType<typeof setTimeout> | undefined
   private manualControlTimer: ReturnType<typeof setInterval> | undefined
   private manualControlEntryTimeout: ReturnType<typeof setTimeout> | undefined
+  private manualControlRelinquish: Promise<boolean> | undefined
   private manualControlPrestreamFrames = 0
   private manualControlNeutralFrames = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -222,6 +229,8 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     if (this.snapshot.connection !== 'connected' || componentId === undefined) {
       return this.recordCommand(action, 'rejected', 'Vehicle identity is not available.')
     }
+    if (!(await this.relinquishManualControl(`Keyboard control disabled before ${actionLabel(action)}.`)))
+      return this.recordCommand(action, 'rejected', 'Keyboard control could not be safely disabled.')
     const command = this.recordCommand(
       action,
       'pending',
@@ -288,6 +297,12 @@ export class MavlinkVehicleProvider implements VehicleProvider {
         'Another mission transfer is already active.',
         'transfer_in_progress',
       )
+    if (!(await this.relinquishManualControl('Keyboard control disabled before mission download.')))
+      return this.localMissionRejection(
+        'download',
+        'Keyboard control could not be safely disabled.',
+        'transport_error',
+      )
     const active = this.startMissionTransfer('download', 'Mission download requested.')
     if (!active)
       return this.localMissionRejection('download', 'Vehicle identity is not available.', 'not_connected')
@@ -312,6 +327,12 @@ export class MavlinkVehicleProvider implements VehicleProvider {
         'Another mission transfer is already active.',
         'transfer_in_progress',
       )
+    if (!(await this.relinquishManualControl('Keyboard control disabled before mission upload.')))
+      return this.localMissionRejection(
+        'upload',
+        'Keyboard control could not be safely disabled.',
+        'transport_error',
+      )
     const active = this.startMissionTransfer('upload', 'Mission upload requested.', plan)
     if (!active)
       return this.localMissionRejection('upload', 'Vehicle identity is not available.', 'not_connected')
@@ -333,6 +354,12 @@ export class MavlinkVehicleProvider implements VehicleProvider {
         'clear',
         'Another mission transfer is already active.',
         'transfer_in_progress',
+      )
+    if (!(await this.relinquishManualControl('Keyboard control disabled before mission clear.')))
+      return this.localMissionRejection(
+        'clear',
+        'Keyboard control could not be safely disabled.',
+        'transport_error',
       )
     const active = this.startMissionTransfer('clear', 'Mission clear requested.')
     if (!active)
@@ -492,6 +519,45 @@ export class MavlinkVehicleProvider implements VehicleProvider {
   private stopManualControlLoop(): void {
     if (this.manualControlTimer) clearInterval(this.manualControlTimer)
     this.manualControlTimer = undefined
+  }
+  private relinquishManualControl(reason: string): Promise<boolean> {
+    if (this.manualControlRelinquish) return this.manualControlRelinquish
+    if (!MANUAL_CONTROL_OWNING_STATUSES.has(this.snapshot.manualControl.status)) return Promise.resolve(true)
+    this.clearManualControlEntryTimeout()
+    this.manualControlPrestreamFrames = 0
+    this.manualControlNeutralFrames = this.manualControlTimer ? MANUAL_CONTROL_NEUTRAL_FRAMES : 0
+    this.setManualControl('disabled', reason)
+    const { componentId } = this.snapshot.vehicle
+    const targetSystem = Number(this.snapshot.vehicle.id.replace('SYS-', ''))
+    if (
+      componentId === undefined ||
+      !Number.isInteger(targetSystem) ||
+      this.snapshot.connection !== 'connected'
+    )
+      return Promise.resolve(false)
+    const handoff = this.connection
+      .send(
+        encodeBodyVelocitySetpoint(
+          neutralManualControlInput(),
+          targetSystem,
+          componentId,
+          this.frameSequence++,
+        ),
+        this.remoteAddress,
+      )
+      .then(() =>
+        this.connection.send(
+          encodeSetFlightMode(PX4_CUSTOM_MAIN_MODE_POSCTL, targetSystem, componentId, this.frameSequence++),
+          this.remoteAddress,
+        ),
+      )
+      .then(() => this.snapshot.connection === 'connected')
+      .catch(() => false)
+    this.manualControlRelinquish = handoff
+    void handoff.finally(() => {
+      if (this.manualControlRelinquish === handoff) this.manualControlRelinquish = undefined
+    })
+    return handoff
   }
   private manualControlTick(): void {
     const status = this.snapshot.manualControl.status
@@ -716,7 +782,11 @@ export class MavlinkVehicleProvider implements VehicleProvider {
       return this.failActiveMission(reason, `${missionLabel(active.operation.type)} rejected by vehicle.`)
     }
     if (active.operation.type === 'upload' && active.stage === 'waiting_for_ack')
-      return this.succeedActiveMission('Mission upload accepted.', active.plan)
+      return this.succeedActiveMission(
+        'Mission upload accepted; download to verify.',
+        undefined,
+        active.plan?.items.length,
+      )
     if (active.operation.type === 'clear' && active.stage === 'waiting_for_ack')
       return this.succeedActiveMission('Mission cleared.', emptyVehicleMission())
     return this.failMissionProtocol('Unexpected mission acknowledgement during download.')
@@ -840,21 +910,21 @@ export class MavlinkVehicleProvider implements VehicleProvider {
     this.failActiveMission('transport_error', message)
     return true
   }
-  private succeedActiveMission(message: string, vehiclePlan?: MissionPlan): true {
+  private succeedActiveMission(message: string, vehiclePlan?: MissionPlan, itemCount?: number): true {
     const active = this.activeMissionTransfer
     if (!active) return true
     this.clearMissionTimeout()
     this.activeMissionTransfer = undefined
     const operation = completeMissionTransfer(active.operation, 'succeeded', Date.now(), message)
-    const itemCount = vehiclePlan?.items.length ?? this.snapshot.mission.totalWaypoints
+    const totalWaypoints = itemCount ?? vehiclePlan?.items.length ?? this.snapshot.mission.totalWaypoints
     this.set({
       ...this.snapshot,
       mission: {
         ...this.snapshot.mission,
-        name: vehiclePlan?.name ?? this.snapshot.mission.name,
-        state: itemCount === 0 ? 'idle' : 'ready',
+        name: vehiclePlan?.name ?? active.plan?.name ?? this.snapshot.mission.name,
+        state: totalWaypoints === 0 ? 'idle' : 'ready',
         currentWaypoint: 0,
-        totalWaypoints: itemCount,
+        totalWaypoints,
         progressPercent: 0,
         vehiclePlan: vehiclePlan ?? this.snapshot.mission.vehiclePlan,
         activeTransfer: undefined,

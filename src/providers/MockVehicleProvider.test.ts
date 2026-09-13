@@ -82,4 +82,18 @@ describe('MockVehicleProvider', () => {
       input: { forward: 0, right: 0, up: 0, yawRight: 0 },
     })
   })
+
+  it('disables manual control before commands and mission operations', async () => {
+    vi.useFakeTimers()
+    const provider = new MockVehicleProvider()
+    await provider.connect()
+    await provider.enableManualControl()
+    await provider.sendCommand('land')
+    expect(provider.getSnapshot().manualControl.status).toBe('disabled')
+
+    await provider.enableManualControl()
+    await provider.downloadMission()
+    expect(provider.getSnapshot().manualControl.status).toBe('disabled')
+    provider.dispose()
+  })
 })

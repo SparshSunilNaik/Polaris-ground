@@ -170,7 +170,7 @@ describe('MavlinkVehicleProvider commands', () => {
     expect(provider.getSnapshot().mission).toMatchObject({
       activeTransfer: undefined,
       mostRecentTransfer: { status: 'succeeded', type: 'upload' },
-      vehiclePlan: missionPlan,
+      vehiclePlan: undefined,
     })
   })
 
@@ -373,6 +373,60 @@ describe('MavlinkVehicleProvider commands', () => {
     })
     await vi.advanceTimersByTimeAsync(300)
     expect(provider.getSnapshot().manualControl.status).toBe('disabled')
+  })
+
+  it('relinquishes manual ownership before command and mission traffic, including rapid re-entry', async () => {
+    vi.useFakeTimers()
+    const provider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await provider.connect()
+    transportHarness(provider).handle(heartbeat)
+    transportHarness(provider).handle(globalPosition)
+    await provider.enableManualControl()
+    mocks.invoke.mockClear()
+
+    await provider.sendCommand('land')
+    expect(provider.getSnapshot().manualControl).toMatchObject({
+      status: 'disabled',
+      input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+    })
+    expect(sentMessageIds()).toEqual([84, 76, 76])
+
+    await provider.enableManualControl()
+    mocks.invoke.mockClear()
+    await provider.downloadMission()
+    expect(provider.getSnapshot().manualControl.status).toBe('disabled')
+    expect(sentMessageIds()).toEqual([84, 76, 43])
+    provider.dispose()
+  })
+
+  it('fails manual control on Offboard timeout or mode theft and leaves neutral input', async () => {
+    vi.useFakeTimers()
+    const timeoutProvider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await timeoutProvider.connect()
+    transportHarness(timeoutProvider).handle(heartbeat)
+    transportHarness(timeoutProvider).handle(globalPosition)
+    await timeoutProvider.enableManualControl()
+    await vi.advanceTimersByTimeAsync(2200)
+    expect(timeoutProvider.getSnapshot().manualControl).toMatchObject({
+      status: 'failed',
+      input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+    })
+
+    const theftProvider = new MavlinkVehicleProvider('0.0.0.0:14550', '127.0.0.1:14540')
+    await theftProvider.connect()
+    transportHarness(theftProvider).handle(heartbeat)
+    transportHarness(theftProvider).handle(globalPosition)
+    await theftProvider.enableManualControl()
+    await vi.advanceTimersByTimeAsync(200)
+    transportHarness(theftProvider).handle(offboardHeartbeat)
+    theftProvider.updateManualControl({ forward: 1, right: 0, up: 0, yawRight: 0 })
+    transportHarness(theftProvider).handle(heartbeat)
+    expect(theftProvider.getSnapshot().manualControl).toMatchObject({
+      status: 'failed',
+      input: { forward: 0, right: 0, up: 0, yawRight: 0 },
+    })
+    timeoutProvider.dispose()
+    theftProvider.dispose()
   })
 
   it('keeps telemetry stale until the selected vehicle heartbeat restores the link', async () => {

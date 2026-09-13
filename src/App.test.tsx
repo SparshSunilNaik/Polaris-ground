@@ -41,6 +41,18 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove item 4' }))
     expect(screen.queryByRole('button', { name: 'Remove item 4' })).not.toBeInTheDocument()
   })
+  it('keeps a downloaded vehicle plan separate until the operator explicitly adopts it', async () => {
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Mission' }))
+    fireEvent.change(screen.getByLabelText('Mission name'), { target: { value: 'Local revision' } })
+    expect(screen.getByText('Unsaved local changes')).toBeVisible()
+    expect(screen.getByRole('button', { name: /Adopt vehicle plan.*replaces local changes/i })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /Adopt vehicle plan.*replaces local changes/i }))
+    expect(screen.getByRole('dialog')).toHaveTextContent(/Local changes will be lost/i)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Adopt vehicle plan' }))
+    expect(screen.getByLabelText('Mission name')).toHaveValue('Perimeter Survey')
+    expect(screen.getByText('Local draft')).toBeVisible()
+  })
   it('exposes live vehicle coordinates and copies them into a local item without transmission', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Mission' }))
